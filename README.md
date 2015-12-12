@@ -4,4 +4,4 @@
 
 > License   		[GNU GPL v2](http://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
-> Author    		[Peter Kosyh](gl00my@mail.ru)
+> Author    		[Peter Kosyh](mailto://gl00my@mail.ru "Contact gl00my@mail.ru")
