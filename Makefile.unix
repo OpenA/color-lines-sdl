@@ -5,7 +5,7 @@ ARCHIVE := lines_$(VERSION).tar.gz
 CFLAGS:=-Wall -O2 $(shell sdl-config --cflags) 
 #-DMAEMO
 
-LDFLAGS:=$(shell sdl-config --libs) -lSDL_image -lSDL_mixer
+LDFLAGS:=$(shell sdl-config --libs) -lm -lSDL_image -lSDL_mixer
 
 SRC     := board.c graphics.c main.c sound.c
 OBJ     := $(patsubst %.c, %.o, $(SRC))
@@ -29,7 +29,7 @@ $(OBJ): %.o : %.c
 
 color-lines:  $(OBJ)
 	cat color-lines.desktop.in | sed -e "s|@BINDIR|$(BINDIR)|g" > color-lines.desktop
-	$(CC) $(CFLAGS) $(LDFLAGS) $(^) -o $(@) 
+	$(CC) -o $(@) $(CFLAGS) $(^) $(LDFLAGS)
 	strip color-lines
 
 clean:
