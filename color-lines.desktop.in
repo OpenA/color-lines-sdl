@@ -1,0 +1,12 @@
+[Desktop Entry]
+Encoding=UTF-8
+Version=0.6
+Type=Application
+Name=Color Lines
+Name[ru]=Цветные Шарики
+Comment=Color Lines classic.
+Comment[ru]=Игра цветные шарики.
+Exec=@BINDIR/color-lines
+Icon=color-lines.png
+Terminal=false
+Categories=Game;LogicGame;

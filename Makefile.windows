@@ -1,0 +1,37 @@
+DEFINES = -DWINDOWS -DGAMEDATADIR=\"\"
+CXX = gcc
+CXXFLAGS = $(DEFINES)
+LIBS = -lSDLmain -lSDL -lSDL_mixer -lSDL_ttf -lSDL_image
+TARGET = lines.exe
+
+all: $(TARGET)
+
+main.o: main.c
+	$(CXX) -c main.c $(CXXFLAGS) -o main.o
+
+graphics.o: graphics.c
+	$(CXX) -c graphics.c $(CXXFLAGS) -o graphics.o
+
+board.o: board.c
+	$(CXX) -c board.c $(CXXFLAGS) -o board.o
+
+sound.o: sound.c
+	$(CXX) -c sound.c $(CXXFLAGS) -o sound.o
+
+resources.o: resources.rc
+	windres -i resources.rc -o resources.o
+
+$(TARGET): main.o graphics.o board.o sound.o resources.o
+	$(CXX) -o $(TARGET) main.o graphics.o board.o sound.o resources.o -mwindows $(LIBS)
+
+install: all
+	if not exist bin mkdir bin
+	if not exist bin\gfx mkdir bin\gfx
+	if not exist bin\sounds mkdir bin\sounds
+	if not exist bin\icon mkdir bin\icon
+
+	copy lines.exe bin
+	for /D %%f in (gfx) do ( copy /Y %%f bin\gfx )
+	for /D %%f in (sounds) do ( copy /Y %%f bin\sounds )
+	for /D %%f in (icon) do ( copy /Y %%f bin\icon )
+
