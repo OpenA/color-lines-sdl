@@ -1,96 +1,91 @@
-#include "sound.h"
 #include <SDL.h>
 #include <SDL_mixer.h>
-
-#include <stdio.h>
-#include <stdlib.h>
+#include "sound.h"
 
 /* Mix_Chunk is like Mix_Music, only it's for ordinary sounds. */
 #define EFFECTS_NR 7
 
 Mix_Chunk *effects[EFFECTS_NR] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-int channels[EFFECTS_NR] = { -1, -1, -1, -1, -1, -1, -1};
+      int channels[EFFECTS_NR] = { -1, -1, -1, -1, -1, -1, -1};
 
-Mix_Music *music = NULL;
+Mix_Music *Music = NULL;
+static bool SND_DISABLED = false;
+static char SND_DIR[ 1024 ];
 
-int audio_rate = 44100;
-Uint16 audio_format = AUDIO_S16; 
-int audio_channels = 2;
-int audio_buffers = 4096;
-static int snd_disabled = 0;
-
-int snd_init(void) 
+bool snd_init(char *g_datadir)
 {
-	if (Mix_OpenAudio(audio_rate, audio_format, audio_channels, audio_buffers)) {
+	if (Mix_OpenAudio(44100, AUDIO_S16, 2, 4096)) {
 		fprintf(stderr, "Unable to open audio!\n");
-		return -1;
+		return true;
 	}
-	effects[SND_CLICK] = Mix_LoadWAV(GAMEDATADIR"sounds/click.wav");
-	effects[SND_BONUS] = Mix_LoadWAV(GAMEDATADIR"sounds/bonus.wav");
-	effects[SND_HISCORE] = Mix_LoadWAV(GAMEDATADIR"sounds/hiscore.wav");
-	effects[SND_GAMEOVER] = Mix_LoadWAV(GAMEDATADIR"sounds/gameover.wav");
-	effects[SND_BOOM]  = Mix_LoadWAV(GAMEDATADIR"sounds/boom.wav");
-	effects[SND_FADEOUT]  = Mix_LoadWAV(GAMEDATADIR"sounds/fadeout.wav");
-	effects[SND_PAINT]  = Mix_LoadWAV(GAMEDATADIR"sounds/paint.wav");
+	strcpy(SND_DIR, g_datadir);
+	strcat(SND_DIR, "sounds/");
+	
+	char click   [ 1024 ]; strcpy( click   , SND_DIR ); strcat( click   , "click.wav"    );
+	char bonus   [ 1024 ]; strcpy( bonus   , SND_DIR ); strcat( bonus   , "bonus.wav"    );
+	char hiscore [ 1024 ]; strcpy( hiscore , SND_DIR ); strcat( hiscore , "hiscore.wav"  );
+	char gameover[ 1024 ]; strcpy( gameover, SND_DIR ); strcat( gameover, "gameover.wav" );
+	char boom    [ 1024 ]; strcpy( boom    , SND_DIR ); strcat( boom    , "boom.wav"     );
+	char fadeout [ 1024 ]; strcpy( fadeout , SND_DIR ); strcat( fadeout , "fadeout.wav"  );
+	char paint   [ 1024 ]; strcpy( paint   , SND_DIR ); strcat( paint   , "paint.wav"    );
+	
+	effects[SND_CLICK]    = Mix_LoadWAV( click    );
+	effects[SND_BONUS]    = Mix_LoadWAV( bonus    );
+	effects[SND_HISCORE]  = Mix_LoadWAV( hiscore  );
+	effects[SND_GAMEOVER] = Mix_LoadWAV( gameover );
+	effects[SND_BOOM]     = Mix_LoadWAV( boom     );
+	effects[SND_FADEOUT]  = Mix_LoadWAV( fadeout  );
+	effects[SND_PAINT]    = Mix_LoadWAV( paint    );
 //	Mix_Volume(-1, 127);
-	return 0;
+	return false;
 }
 
 void snd_volume(int vol)
 {
-//	int i;
-	int vsnd = vol / 2;
+	int vsnd   =  vol / 2;
 	int vmusic = (vol - vol / 8) / 2;
+	
 	Mix_Volume(-1, vsnd);
 	Mix_VolumeMusic(vmusic);
-
-//	for (i = 0 ; i < EFFECTS_NR && effects[i]; i ++)
+	
+//	for (int i = 0 ; i < EFFECTS_NR && effects[i]; i++)
 //		Mix_VolumeChunk(effects[i], vsnd);
 	
-	if (!vsnd) {
-		snd_disabled = 1;
-	} else	
-		snd_disabled = 0;
+	SND_DISABLED = !vsnd;
 }
 
-int snd_music_start(void)
+bool snd_music_start(void)
 {
-	int rc;
-	if (music) {
+	if (Music) {
 		if (Mix_PausedMusic())
 			Mix_ResumeMusic();
-		return 1;
+		return true;
 	}
-	music = Mix_LoadMUS(GAMEDATADIR"sounds/satellite.s3m");
-	rc = (!Mix_PlayMusic(music, -1))? 1: 0;
+	char track[1024];
+	strcpy(track, SND_DIR);
+	strcat(track, "hipchip2.xm");
 	Mix_VolumeMusic(Mix_VolumeMusic(-1)); // hack?
-	return rc;
+	return !Mix_PlayMusic((Music = Mix_LoadMUS(track)), -1);
 }
 
 void snd_music_stop(void)
 {
-	if (!music)
-		return;
-	if (!Mix_PausedMusic())	
+	if (Music && !Mix_PausedMusic())
 		Mix_PauseMusic();
 }
 
 void snd_done(void)
 {
-	int i = 0;
-	for (i = 0 ; i < EFFECTS_NR; i ++)
+	for (int i = 0; i < EFFECTS_NR; i++)
 		Mix_FreeChunk(effects[i]);
 	Mix_HaltMusic();
-	Mix_FreeMusic(music);
-	music = NULL;
+	Mix_FreeMusic(Music);
+	Music = NULL;
 	Mix_CloseAudio();
 }
 
 void snd_play(int num, int cnt)
 {
-	if (num >= EFFECTS_NR)
-		return;
-	if (snd_disabled)
-		return;
-	channels[num] = Mix_PlayChannel(-1, effects[num], cnt - 1);
+	if (!SND_DISABLED && num < EFFECTS_NR)
+		channels[num] = Mix_PlayChannel(-1, effects[num], cnt - 1);
 }

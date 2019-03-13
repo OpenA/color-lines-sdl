@@ -4,6 +4,7 @@
 #include "math.h"
 	
 static SDL_Surface *screen;
+static char GFX_DIR[ 1024 ];
 
 void gfx_free_image(img_t p)
 {
@@ -12,24 +13,20 @@ void gfx_free_image(img_t p)
 
 int	gfx_img_w(img_t pixmap)
 {
-	if (!pixmap)
-		return 0;
-	return ((SDL_Surface *)pixmap)->w;
+	return pixmap ? ((SDL_Surface *)pixmap)->w : 0;
 }
 
 int	gfx_img_h(img_t pixmap)
 {
-	if (!pixmap)
-		return 0;
-	return ((SDL_Surface *)pixmap)->h;
+	return pixmap ? ((SDL_Surface *)pixmap)->h : 0;
 }
 
-img_t	gfx_grab_screen(int x, int y, int w, int h)
+img_t gfx_grab_screen(int x, int y, int w, int h)
 {
 	SDL_Rect dst, src;
 	SDL_Surface *img = SDL_CreateRGBSurface(SDL_HWSURFACE, w, h, 16, 0xF800, 0x7E0, 0x1F, 0);
 	if (!img)
-		return NULL;	
+		return NULL;
 	src.x = x;
 	src.y = y;
 	src.w = w;
@@ -37,7 +34,7 @@ img_t	gfx_grab_screen(int x, int y, int w, int h)
 	dst.x = 0;
 	dst.y = 0;
 	dst.w = w;
-	dst.h = h;	
+	dst.h = h;
 	SDL_BlitSurface(screen, &src, img, &dst);
 	return img;
 }
@@ -50,7 +47,7 @@ img_t gfx_set_alpha(img_t src, int alpha)
 	
 	SDL_Surface *img = SDL_DisplayFormatAlpha((SDL_Surface*)src);
 	if (!img)
-		return NULL;	
+		return NULL;
 	ptr = (Uint32*)img->pixels;
 	size = img->w * img->h;
 	while (size --) {
@@ -59,7 +56,7 @@ img_t gfx_set_alpha(img_t src, int alpha)
 		SDL_GetRGBA(col, img->format, &r, &g, &b, &a);
 		col = SDL_MapRGBA(img->format, r, g, b, a * alpha / 255);
 		*ptr = col;
-		ptr ++;
+		ptr++;
 	}
 	return img;
 }
@@ -67,29 +64,31 @@ img_t gfx_set_alpha(img_t src, int alpha)
 img_t gfx_combine(img_t src, img_t dst)
 {
 	img_t new;
-	new = SDL_DisplayFormatAlpha(dst);
-	if (!new)
+	if (!(new = SDL_DisplayFormatAlpha(dst)))
 		return NULL;
 	SDL_BlitSurface((SDL_Surface *)src, NULL, (SDL_Surface *)new, NULL);
 	return new;	
 }
 
-img_t gfx_load_image(char *filename, int transparent)
+img_t gfx_load_image(char *filename, bool transparent)
 {
-
 	SDL_Surface *img, *img2;
-	img = IMG_Load(filename);
-	if (!img) {
-		fprintf(stderr, "File not found: %s\n", filename);
+	
+	char filepath[1024];
+	
+	strcpy(filepath, GFX_DIR);
+	strcat(filepath, filename);
+	
+	if (!(img = IMG_Load(filepath))) {
+		fprintf(stderr, "File not found: %s\n", filepath);
 		return NULL;
 	}
-	if (transparent && transparent != 2) {
+	if (transparent) {
 		SDL_SetColorKey(img,  SDL_RLEACCEL, img->format->colorkey);
 		return img;
 	} 
-    // Create hardware surface
-    	img2 = SDL_CreateRGBSurface(SDL_HWSURFACE | (transparent)?SDL_SRCCOLORKEY:0, 
-		img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0);
+	// Create hardware surface
+	img2 = SDL_CreateRGBSurface(SDL_HWSURFACE | (transparent) ? SDL_SRCCOLORKEY : 0, img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0);
 	if (!img2) {
 		SDL_FreeSurface(img);
 		fprintf(stderr, "Error creating surface!\n");
@@ -98,7 +97,7 @@ img_t gfx_load_image(char *filename, int transparent)
 	
 	if (transparent)
 		SDL_SetColorKey(img2,  SDL_SRCCOLORKEY | SDL_RLEACCEL, 0xF81F);
-
+	
 	SDL_SetAlpha(img2, 0, 0);
 	SDL_BlitSurface(img, NULL, img2, NULL);
 	SDL_FreeSurface(img);
@@ -108,7 +107,7 @@ img_t gfx_load_image(char *filename, int transparent)
 typedef struct {
 	int	h;
 	int	w;
-	img_t	font;
+	img_t font;
 	int	n;
 	int	widths[256];
 	int	disp[256];
@@ -125,7 +124,7 @@ static int fnt_calc_idx(fnt_t f, char c)
 //		fprintf(stderr, "%d->%d\n", idx, idx - 65);
 		idx -= 65;
 	}
-#endif		
+#endif
 	if (idx > (fnt->n + 32) || idx < 32) {
 //		fprintf(stderr, "%d\n", idx);
 		return -1;
@@ -133,29 +132,35 @@ static int fnt_calc_idx(fnt_t f, char c)
 	idx = idx - (int)' ' - 1;
 	return idx;
 }
+
 int gfx_draw_char(fnt_t f, const char c, int x, int y)
 {
 	_font_t *fnt = (_font_t *)f;
-	int idx;
-	int from;
-
+	int idx, from;
+	
 	SDL_Surface *pixbuf;
 	SDL_Rect dest, src;
-
+	
 	if (c == ' ')
 		return fnt->w / 2;
 	
 	idx = fnt_calc_idx(f, c);
 	if (idx < 0)
 		return 0;
-	from = (idx) * fnt->w + (fnt->disp[idx]);
-
+	
+	from   = (idx) * fnt->w + (fnt->disp[idx]);
 	pixbuf = (SDL_Surface *)(fnt->font);
 	
-	src.x = from; src.y = 0;
-	src.w = fnt->widths[idx]; src.h = fnt->h;
-	dest.x = x; dest.y = y; 
-	dest.w = fnt->widths[idx]; dest.h = fnt->h;
+	src.x = from;
+	src.y = 0;
+	src.w = fnt->widths[idx];
+	src.h = fnt->h;
+	
+	dest.x = x;
+	dest.y = y;
+	dest.w = fnt->widths[idx];
+	dest.h = fnt->h;
+	
 	SDL_BlitSurface(pixbuf, &src, screen, &dest);
 	return dest.w;
 }
@@ -163,10 +168,9 @@ int gfx_draw_char(fnt_t f, const char c, int x, int y)
 int gfx_chars_width(fnt_t f, const char *str)
 {
 	_font_t *fnt = (_font_t *)f;
-	int len = strlen(str);
-	int i; int x = 0;
-	int idx, from;
-	for (i = 0; i < len ; i++ ) {
+	int i, x = 0;
+	for (i = 0; i < strlen(str); i++ ) {
+		int idx/*, from*/;
 		if (str[i] == ' ') {
 			x += fnt->w / 2;
 			continue;
@@ -174,7 +178,7 @@ int gfx_chars_width(fnt_t f, const char *str)
 		idx = fnt_calc_idx(f, str[i]);
 		if (idx < 0)
 			continue;
-		from = (idx) * fnt->w + (fnt->disp[idx]);
+		/*from = (idx) * fnt->w + (fnt->disp[idx]);*/
 		x += fnt->widths[idx] + 1;
 	}
 	return x;
@@ -182,9 +186,8 @@ int gfx_chars_width(fnt_t f, const char *str)
 
 int gfx_draw_chars(fnt_t f, const char *str, int x, int y)
 {
-	int len = strlen(str);
-	int i; int x_orig = x;
-	for (i = 0; i < len ; i++ ) {
+	int i, x_orig = x;
+	for (i = 0; i < strlen(str); i++ ) {
 		x += gfx_draw_char(f, str[i], x, y);
 	}
 	return x - x_orig;
@@ -193,41 +196,46 @@ int gfx_draw_chars(fnt_t f, const char *str, int x, int y)
 int gfx_font_height(fnt_t f)
 {
 	_font_t	*font = (_font_t *)f;
-	return font->h;	
-
+	return font->h;
 }
 
 fnt_t gfx_load_font(char *fname, int w)
 {
-	SDL_Surface *fn;
-	int i;
-	_font_t	*font;int y;
-	fn = (SDL_Surface*)gfx_load_image(fname, 1);
+	SDL_Surface *fn = (SDL_Surface*)gfx_load_image(fname, true);
+	
 	if (!fn)
 		return NULL;
-	font = malloc(sizeof(*font));
+	
+	_font_t	*font = malloc(sizeof(*font));
+	
 	if (!font) {
 		gfx_free_image(fn);
 		return NULL;
 	}
+	
 	font->n = fn->w / w;
-	font->h = fn->h;	
+	font->h = fn->h;
 	font->w = w;
 	font->font = fn;
-	for (i = 0; i < font->n; i++) {
+	
+	for (int y, i = 0; i < font->n; i++) {
+		
 		font->widths[i] = 0;
 		font->disp[i] = font->w;
+		
 		for (y = 0; y < font->h; y++) {
+			
 			int displ, dispr;
 			Uint32 pixel;
-			Uint8 r, g, b, a;		
-			for (displ = 0; displ < font->w; displ ++) {
+			Uint8 r, g, b, a;
+			
+			for (displ = 0; displ < font->w; displ++) {
 				pixel = sge_GetPixel(fn, i * font->w + displ, y);
 				SDL_GetRGBA(pixel, fn->format, &r, &g, &b, &a);
 				if (a)
 					break;
 			}
-			for (dispr = font->w - 1; dispr >= 0; dispr --) {
+			for (dispr = font->w - 1; dispr >= 0; dispr--) {
 				pixel = sge_GetPixel(fn, i * font->w + dispr, y);
 				SDL_GetRGBA(pixel, fn->format, &r, &g, &b, &a);
 				if (a)
@@ -239,9 +247,7 @@ fnt_t gfx_load_font(char *fname, int w)
 				if ((dispr - displ + 1) > font->widths[i])
 					font->widths[i] = dispr - displ + 1;
 			}
-
 		}
-		
 	}
 	return font;
 }
@@ -251,7 +257,6 @@ void gfx_font_free(fnt_t f)
 	_font_t	*font = (_font_t *)f;
 	gfx_free_image(font->font);
 	free(font);
-	return;	
 }
 
 void gfx_draw_bg(img_t p, int x, int y, int width, int height)
@@ -263,8 +268,8 @@ void gfx_draw_bg(img_t p, int x, int y, int width, int height)
 	src.w = width;
 	src.h = height;
 	dest.x = x;
-	dest.y = y; 
-	dest.w = width; 
+	dest.y = y;
+	dest.w = width;
 	dest.h = height;
 	SDL_BlitSurface(pixbuf, &src, screen, &dest);
 }
@@ -275,7 +280,7 @@ void gfx_draw(img_t p, int x, int y)
 	SDL_Rect dest;
 	dest.x = x;
 	dest.y = y; 
-	dest.w = pixbuf->w; 
+	dest.w = pixbuf->w;
 	dest.h = pixbuf->h;
 	SDL_BlitSurface(pixbuf, NULL, screen, &dest);
 }
@@ -309,32 +314,42 @@ void gfx_clear(int x, int y, int w, int h)
 static	SDL_Surface *icon;
 #endif
 
-int gfx_init(void)
+bool gfx_init(char *g_datadir)
 {
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_AUDIO) < 0) {
 		fprintf(stderr, "Couldn't initialize SDL: %s\n", SDL_GetError());
-		return -1;
-  	}
-#ifdef MAEMO	
+		return true;
+	}
+	
+	strcpy(GFX_DIR, g_datadir);
+	strcat(GFX_DIR, "gfx/");
+	
+#ifdef MAEMO
 	screen = SDL_SetVideoMode(800, 480, 16, SDL_DOUBLEBUF | SDL_HWSURFACE | SDL_FULLSCREEN);
 #else
 	SDL_WM_SetCaption("Color Lines", NULL);
-	icon = IMG_Load( GAMEDATADIR"icon/color-lines.png" );
-	if (icon) {
+	
+	char ipath[1024];
+	
+	strcpy(ipath, g_datadir);
+	strcat(ipath, "gfx/joker.png");
+	
+	if ((icon = IMG_Load(ipath))) {
 		SDL_WM_SetIcon( icon, NULL );
 	}
+	
 	screen = SDL_SetVideoMode(800, 480, 32, SDL_DOUBLEBUF | SDL_HWSURFACE);
-#endif	
+#endif
 	if (screen == NULL) {
 		fprintf(stderr, "Unable to set 800x480 video: %s\n", SDL_GetError());
-		return -1;
+		return true;
 	}
 #ifdef MAEMO
 	SDL_ShowCursor(SDL_DISABLE);
 #endif	
 	gfx_clear(0, 0, 800, 480);
-	return 0;
+	return false;
 }
 
 void gfx_update(int x, int y, int w, int h) {
@@ -356,12 +371,12 @@ void gfx_done(void)
 
 void _PutPixel24(SDL_Surface *surface, Sint16 x, Sint16 y, Uint32 color)
 {
-	Uint8 *pix = (Uint8 *)surface->pixels + y * surface->pitch + x*3;
-
-  	/* Gack - slow, but endian correct */
+	Uint8 *pix = (Uint8 *)surface->pixels + y * surface->pitch + x * 3;
+	
+	/* Gack - slow, but endian correct */
 	*(pix+surface->format->Rshift/8) = color>>surface->format->Rshift;
-  	*(pix+surface->format->Gshift/8) = color>>surface->format->Gshift;
-  	*(pix+surface->format->Bshift/8) = color>>surface->format->Bshift;
+	*(pix+surface->format->Gshift/8) = color>>surface->format->Gshift;
+	*(pix+surface->format->Bshift/8) = color>>surface->format->Bshift;
 	*(pix+surface->format->Ashift/8) = color>>surface->format->Ashift;
 }
 void _PutPixel32(SDL_Surface *surface, Sint16 x, Sint16 y, Uint32 color)
@@ -389,25 +404,25 @@ void _PutPixelX(SDL_Surface *dest,Sint16 x,Sint16 y,Uint32 color)
 
 Uint32 sge_GetPixel(SDL_Surface *surface, Sint16 x, Sint16 y)
 {
-	if(x<0 || x>=surface->w || y<0 || y>=surface->h)
+	if(x < 0 || x >= surface->w || y < 0 || y >= surface->h)
 		return 0;
-
+	
 	switch (surface->format->BytesPerPixel) {
 		case 1: { /* Assuming 8-bpp */
 			return *((Uint8 *)surface->pixels + y*surface->pitch + x);
 		}
 		break;
-
+		
 		case 2: { /* Probably 15-bpp or 16-bpp */
 			return *((Uint16 *)surface->pixels + y*surface->pitch/2 + x);
 		}
 		break;
-
+		
 		case 3: { /* Slow 24-bpp mode, usually not used */
 			Uint8 *pix;
 			int shift;
 			Uint32 color=0;
-
+			
 			pix = (Uint8 *)surface->pixels + y * surface->pitch + x*3;
 			shift = surface->format->Rshift;
 			color = *(pix+shift/8)<<shift;
@@ -420,7 +435,7 @@ Uint32 sge_GetPixel(SDL_Surface *surface, Sint16 x, Sint16 y)
 			return color;
 		}
 		break;
-
+		
 		case 4: { /* Probably 32-bpp */
 			return *((Uint32 *)surface->pixels + y*surface->pitch/4 + x);
 		}
@@ -433,7 +448,7 @@ Uint32 sge_GetPixel(SDL_Surface *surface, Sint16 x, Sint16 y)
 *  Macro to get clipping
 */
 #if SDL_VERSIONNUM(SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL) >= \
-    SDL_VERSIONNUM(1, 1, 5)
+	SDL_VERSIONNUM(1, 1, 5)
 	#define sge_clip_xmin(pnt) pnt->clip_rect.x
 	#define sge_clip_xmax(pnt) pnt->clip_rect.x + pnt->clip_rect.w-1
 	#define sge_clip_ymin(pnt) pnt->clip_rect.y
@@ -452,7 +467,6 @@ Uint32 sge_GetPixel(SDL_Surface *surface, Sint16 x, Sint16 y)
 //==================================================================================
 void _calcRect(SDL_Surface *src, SDL_Surface *dst, float theta, float xscale, float yscale, Uint16 px, Uint16 py, Uint16 qx, Uint16 qy, Sint16 *xmin, Sint16 *ymin, Sint16 *xmax, Sint16 *ymax)
 {
-	int i;
 	Sint16 x, y, rx, ry;
 	Sint32 istx, ictx, isty, icty;
 	// Clip to src surface
@@ -465,13 +479,13 @@ void _calcRect(SDL_Surface *src, SDL_Surface *dst, float theta, float xscale, fl
 	
 	// We don't really need fixed-point here
 	// but why not?
-	istx = (Sint32)((sin(theta)*xscale) * 8192.0);  /* Inverse transform */
+	istx = (Sint32)((sin(theta)*xscale) * 8192.0); /* Inverse transform */
 	ictx = (Sint32)((cos(theta)*xscale) * 8192.2);
 	isty = (Sint32)((sin(theta)*yscale) * 8192.0);
 	icty = (Sint32)((cos(theta)*yscale) * 8192.2);
 
 	//Calculate the four corner points
-	for(i=0; i<4; i++){
+	for (int i = 0; i < 4; i++) {
 		rx = sx[i] - px;
 		ry = sy[i] - py;
 		
@@ -479,19 +493,19 @@ void _calcRect(SDL_Surface *src, SDL_Surface *dst, float theta, float xscale, fl
 		y = (Sint16)(((icty*ry + istx*rx) >> 13) + qy);
 		
 		
-		if(i==0){
+		if (i == 0) {
 			*xmax = *xmin = x;
 			*ymax = *ymin = y;
-		}else{
-			if(x>*xmax)
+		} else {
+			if (x > *xmax)
 				*xmax=x;
-			else if(x<*xmin)
+			else if (x < *xmin)
 				*xmin=x;
 				
-			if(y>*ymax)
-				*ymax=y;
-			else if(y<*ymin)
-				*ymin=y;
+			if (y > *ymax)
+				*ymax = y;
+			else if (y < *ymin)
+				*ymin = y;
 		}
 	}
 	
@@ -560,7 +574,7 @@ void _calcRect(SDL_Surface *src, SDL_Surface *dst, float theta, float xscale, fl
 		} \
 	} 
 
-Uint8 _sge_lock=1;
+Uint8 _sge_lock = 1;
 
 SDL_Rect sge_transformAA(SDL_Surface *src, SDL_Surface *dst, float angle, float xscale, float yscale ,Uint16 px, Uint16 py, Uint16 qx, Uint16 qy, Uint8 flags)
 {
@@ -568,31 +582,29 @@ SDL_Rect sge_transformAA(SDL_Surface *src, SDL_Surface *dst, float angle, float 
 	Sint16 x, y, rx, ry;
 	SDL_Rect r;
 	r.x = r.y = r.w = r.h = 0;
-
+	
 	float theta = (float)(angle*PI/180.0);  /* Convert to radians.  */
-
-
+	
 	// Here we use 18.13 fixed point integer math
 	// Sint32 should have 31 usable bits and one for sign
 	// 2^13 = 8192
-
+	
 	// Check scales
 	Sint32 maxint = (Sint32)(pow(2, sizeof(Sint32)*8 - 1 - 13));  // 2^(31-13)
 	
 	if( xscale == 0 || yscale == 0)
 		return r;
-		
+	
 	if( 8192.0/xscale > maxint )
-		xscale =  (float)(8192.0/maxint);
+		xscale = (float)(8192.0/maxint);
 	else if( 8192.0/xscale < -maxint )
-		xscale =  (float)(-8192.0/maxint);	
-		
+		xscale = (float)(-8192.0/maxint);	
+	
 	if( 8192.0/yscale > maxint )
-		yscale =  (float)(8192.0/maxint);
+		yscale = (float)(8192.0/maxint);
 	else if( 8192.0/yscale < -maxint )
-		yscale =  (float)(-8192.0/maxint);
-
-
+		yscale = (float)(-8192.0/maxint);
+	
 	// Fixed-point equivalents
 	Sint32 const stx = (Sint32)((sin(theta)/xscale) * 8192.0);
 	Sint32 const ctx = (Sint32)((cos(theta)/xscale) * 8192.0);
@@ -600,17 +612,17 @@ SDL_Rect sge_transformAA(SDL_Surface *src, SDL_Surface *dst, float angle, float 
 	Sint32 const cty = (Sint32)((cos(theta)/yscale) * 8192.0);
 	Sint32 const mx = (Sint32)(px*8192.0); 
 	Sint32 const my = (Sint32)(py*8192.0);
-
+	
 	// Compute a bounding rectangle
 	Sint16 xmin=0, xmax=dst->w, ymin=0, ymax=dst->h;
 	_calcRect(src, dst, theta, xscale, yscale, px, py, qx, qy, &xmin,&ymin, &xmax,&ymax);	
-
+	
 	// Clip to src surface
 	Sint16 sxmin = sge_clip_xmin(src);
 	Sint16 sxmax = sge_clip_xmax(src);
 	Sint16 symin = sge_clip_ymin(src);
 	Sint16 symax = sge_clip_ymax(src);
-
+	
 	// Some terms in the transform are constant
 	Sint32 const dx = xmin - qx;
 	Sint32 const ctdx = ctx*dx;
@@ -628,21 +640,18 @@ SDL_Rect sge_transformAA(SDL_Surface *src, SDL_Surface *dst, float angle, float 
 		}
 	}
 	
-	
 	TRANSFORM_GENERIC_AA
-
-
+	
 	// Unlock surfaces
 	if ( SDL_MUSTLOCK(src) && _sge_lock )
 		SDL_UnlockSurface(src);
 	if ( SDL_MUSTLOCK(dst) && _sge_lock )
 		SDL_UnlockSurface(dst);
-
+	
 	//Return the bounding rectangle
 	r.x=xmin; r.y=ymin; r.w=xmax-xmin; r.h=ymax-ymin;
 	return r;
 }
-
 
 SDL_Rect sge_transform(SDL_Surface *src, SDL_Surface *dst, float angle, float xscale, float yscale, Uint16 px, Uint16 py, Uint16 qx, Uint16 qy, Uint8 flags)
 {
@@ -656,22 +665,22 @@ SDL_Surface *sge_transform_surface(SDL_Surface *src, Uint32 bcol, float angle, f
 	// Compute a bounding rectangle
 	Sint16 xmin=0, xmax=0, ymin=0, ymax=0;
 	_calcRect(src, NULL, theta, xscale, yscale, 0, 0, 0, 0, &xmin,&ymin, &xmax,&ymax);	
-
+	
 	Sint16 w = xmax-xmin+1; 
 	Sint16 h = ymax-ymin+1;
 	
 	Sint16 qx = -xmin;
 	Sint16 qy = -ymin;
-
+	
 	SDL_Surface *dest;
 	dest = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, src->format->BitsPerPixel, src->format->Rmask, src->format->Gmask, src->format->Bmask, src->format->Amask);
 	if(!dest)
 		return NULL;
-		
+	
 //	sge_ClearSurface(dest,bcol);  //Set background color
 	
 	sge_transform(src, dest, angle, xscale, yscale, 0, 0, qx, qy, flags);
-
+	
 	return dest;
 }
 

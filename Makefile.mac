@@ -1,0 +1,79 @@
+VERSION  := 0.7
+VERTITLE := color-lines-$(VERSION)
+
+CFLAGS   := -Wall -O2 $(shell sdl-config --cflags) -DMACOS
+LDFLAGS  := $(shell sdl-config --libs) -lm -lSDL_image -lSDL_mixer
+
+SRC      := board.c graphics.c main.c sound.c
+OBJ      := $(patsubst %.c, %.o, $(SRC))
+VER      := `head -c7 .git/FETCH_HEAD`
+
+all: color-lines
+
+$(OBJ): %.o : %.c
+	$(CC) -c $(<) $(I) $(CFLAGS)
+
+color-lines:  $(OBJ)
+	$(CC) -o $(@) $(CFLAGS) $(^) $(LDFLAGS)
+	strip color-lines
+
+zip: app
+	zip -r -X $(VERTITLE).zip Color\ Lines.app
+	rm -f -R Color\ Lines.app
+
+dmg: app
+	hdiutil create -format UDBZ -srcfolder Color\ Lines.app $(VERTITLE).dmg
+	rm -f -R Color\ Lines.app
+
+clean:
+	rm -f *.o color-lines
+	rm -f -R Color\ Lines.app
+
+app: all
+	mkdir CL.iconset
+	mkdir Color\ Lines.app
+	mkdir Color\ Lines.app/Contents
+	mkdir Color\ Lines.app/Contents/MacOS
+	mkdir Color\ Lines.app/Contents/Resources
+	cp -R gfx       Color\ Lines.app/Contents/MacOS/
+	cp -R sounds    Color\ Lines.app/Contents/MacOS/
+	mv color-lines  Color\ Lines.app/Contents/MacOS/
+	sips -z 16 16   gfx/joker.png --out CL.iconset/icon_16x16.png
+	sips -z 32 32   gfx/joker.png --out CL.iconset/icon_16x16@2x.png
+	sips -z 32 32   gfx/joker.png --out CL.iconset/icon_32x32.png
+	sips -z 64 64   gfx/joker.png --out CL.iconset/icon_32x32@2x.png
+	iconutil -c icns CL.iconset
+	rm -R CL.iconset
+	mv CL.icns Color\ Lines.app/Contents/Resources/
+	echo 'APPL????' > Color\ Lines.app/Contents/PkgInfo
+	echo "<?xml version='1.0' encoding='UTF-8'?>\n\
+<!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>\n\
+<plist version='1.0'>\n\
+<dict>\n\
+    <key>CFBundleDevelopmentRegion</key>\n\
+    <string>en</string>\n\
+    <key>CFBundleExecutable</key>\n\
+    <string>color-lines</string>\n\
+    <key>CFBundleIconFile</key>\n\
+    <string>CL</string>\n\
+    <key>CFBundleIdentifier</key>\n\
+    <string>p.kosyh.color-lines</string>\n\
+    <key>CFBundleInfoDictionaryVersion</key>\n\
+    <string>6.0</string>\n\
+    <key>CFBundleName</key>\n\
+    <string>Color Lines</string>\n\
+    <key>CFBundleShortVersionString</key>\n\
+    <string>${VERSION}</string>\n\
+    <key>CFBundleVersion</key>\n\
+    <string>git+-${VER}</string>\n\
+    <key>CFBundlePackageType</key>\n\
+    <string>APPL</string>\n\
+    <key>CFBundleSignature</key>\n\
+    <string>????</string>\n\
+    <key>NSHumanReadableCopyright</key>\n\
+    <string>Color lines game written with SDL with bonus features.</string>\n\
+    <key>NSPrincipalClass</key>\n\
+    <string>NSApplication</string>\n\
+</dict>\n\
+</plist>" > Color\ Lines.app/Contents/info.plist
+	rm -f *.o

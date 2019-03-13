@@ -1,72 +1,64 @@
-VERSION := 0.6
-VERTITLE := lines-$(VERSION)
-ARCHIVE := lines_$(VERSION).tar.gz
+VERSION  := 0.7
+VERTITLE := color-lines-$(VERSION)
 
-CFLAGS:=-Wall -O2 $(shell sdl-config --cflags) 
-#-DMAEMO
+OS       := $(shell uname | sed "y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/")
 
-LDFLAGS:=$(shell sdl-config --libs) -lm -lSDL_image -lSDL_mixer
+ifeq ($(OS),DARWIN)
+	OS   := MACOS
+else ifeq ($(OS),SUNOS)
+	OS   := SOLARIS
+endif
 
-SRC     := board.c graphics.c main.c sound.c
-OBJ     := $(patsubst %.c, %.o, $(SRC))
+PREFIX   := /usr/local
+CFLAGS   := -Wall -O2 $(shell sdl-config --cflags) -D$(OS)
+LDFLAGS  := $(shell sdl-config --libs) -lm -lSDL_image -lSDL_mixer
+
+SRC      := board.c graphics.c main.c sound.c
+OBJ      := $(patsubst %.c, %.o, $(SRC))
+
+INSTALLDIR := /opt/color-lines
 
 all: color-lines
-PREFIX:=/usr/local
 
-BINDIR:=$(DESTDIR)/$(PREFIX)/games/
-GAMEDATADIR:=$(DESTDIR)/$(PREFIX)/share/games/color-lines/
+tar.lzma: tar
+	lzma -9 $(VERTITLE).tar
 
-svnclean:
-	svn st | grep "^?" | awk '{ print $$2 }' | while read l; do $(RM) -rf $$l; done
+tar.lz: tar
+	lzip -9 $(VERTITLE).tar
 
-tarball: clean svnclean
+tar.xz: tar
+	xz -9 $(VERTITLE).tar
+
+tar.bz2: tar
+	bzip2 --best $(VERTITLE).tar
+
+tar.gz: tar
+	gzip --best $(VERTITLE).tar
+
+tar: clean all
 	ln -sf ./ $(VERTITLE)
-	tar -cz --exclude $(VERTITLE)/$(VERTITLE) --exclude svg --exclude .svn --exclude $(ARCHIVE) -f $(ARCHIVE) $(VERTITLE)/*
-	$(RM) -f $(VERTITLE)
+	tar --exclude='./*/.*' -cf $(VERTITLE).tar $(VERTITLE)/gfx $(VERTITLE)/sounds $(VERTITLE)/color-lines $(VERTITLE)/color-lines.desktop
+	$(RM) -f $(VERTITLE) *.o color-lines color-lines.desktop
 
 $(OBJ): %.o : %.c
-	$(CC) -c $(<) $(I) $(CFLAGS) -DGAMEDATADIR=\"$(GAMEDATADIR)\"
+	$(CC) -c $(<) $(I) $(CFLAGS) -D$(OS)
 
 color-lines:  $(OBJ)
-	cat color-lines.desktop.in | sed -e "s|@BINDIR|$(BINDIR)|g" > color-lines.desktop
+	cat color-lines.desktop.in | sed -e "s|@BINDIR|$(INSTALLDIR)|g" | sed -e "s|@VER|$(VERSION)|g" > color-lines.desktop
 	$(CC) -o $(@) $(CFLAGS) $(^) $(LDFLAGS)
 	strip color-lines
 
 clean:
-	rm -f *.o color-lines
+	rm -f *.o color-lines color-lines.desktop
 
 install: all
-	install -d $(BINDIR)
-	install -m 0755 color-lines $(BINDIR)
-	install -d $(GAMEDATADIR)/gfx
-	install -d $(GAMEDATADIR)/icon
-	install -m 0644 icon/color-lines.png $(GAMEDATADIR)/icon
-	install -d $(GAMEDATADIR)/sounds
-	install -m 0644 sounds/* $(GAMEDATADIR)/sounds/
-	install -m 0644 gfx/atomic.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/ball.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/bg.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/boom.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/cell.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/color1.png $(GAMEDATADIR)/gfx		
-	install -m 0644 gfx/color2.png $(GAMEDATADIR)/gfx		
-	install -m 0644 gfx/color3.png $(GAMEDATADIR)/gfx		
-	install -m 0644 gfx/color4.png $(GAMEDATADIR)/gfx	
-	install -m 0644 gfx/color5.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/color6.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/color7.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/fnt.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/info_off.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/info_on.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/info.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/joker.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/music_off.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/music_on.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/paint.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/pb_logo.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/vol_empty.png $(GAMEDATADIR)/gfx
-	install -m 0644 gfx/vol_full.png $(GAMEDATADIR)/gfx
-	install -d $(DESTDIR)/$(PREFIX)/share/pixmaps
-	install -d $(DESTDIR)/$(PREFIX)/share/applications/
-	install -m 0644 icon/color-lines.png $(DESTDIR)/$(PREFIX)/share/pixmaps
-	install -m 0644 color-lines.desktop $(DESTDIR)/$(PREFIX)/share/applications/color-lines.desktop
+	install -d $(INSTALLDIR)/sounds
+	install -d $(INSTALLDIR)/gfx
+	install -m 0755 color-lines $(INSTALLDIR)
+	install -m 0755 sounds/* $(INSTALLDIR)/sounds/
+	install -m 0755 gfx/* $(INSTALLDIR)/gfx/
+	install -d $(PREFIX)/share/pixmaps
+	install -d $(PREFIX)/share/applications
+	install -m 0755 gfx/joker.png $(PREFIX)/share/pixmaps/color-lines.png
+	install -m 0755 color-lines.desktop $(PREFIX)/share/applications/color-lines.desktop
+	$(MAKE) clean

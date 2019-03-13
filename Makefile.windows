@@ -34,4 +34,3 @@ install: all
 	for /D %%f in (gfx) do ( copy /Y %%f bin\gfx )
 	for /D %%f in (sounds) do ( copy /Y %%f bin\sounds )
 	for /D %%f in (icon) do ( copy /Y %%f bin\icon )
-

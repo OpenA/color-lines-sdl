@@ -6,76 +6,73 @@
 #include <SDL.h>
 #include <SDL_thread.h>
 // #include <pthread.h>
-
-#ifndef WINDOWS
-#include <unistd.h>
-#include <pwd.h>
+#ifdef WINDOWS
+	#include <windows.h>
+	#include <shlobj.h>
+	#define PATH_MAX MAX_PATH
 #else
-#include <windows.h>
-#include <shlobj.h>
+	#include <limits.h>
+	#include <unistd.h>
+	#include <pwd.h>
+	
+	#ifdef MACOS
+		#include <mach-o/dyld.h>
+		//#include <sys/syslimits.h>
+	#endif
 #endif
 
-#ifndef MAEMO
-char *get_path(int n);
-#endif
+static char GAME_DATA_DIR [ PATH_MAX ];
 
 #ifdef MAEMO
-#define SAVE_PATH "/home/user/.color-lines-save"
+	#define SIZE_STEPS  8 // 16
+	#define SAVE_PATH   "/home/user/.config/color-lines/save"
+	#define SCORES_PATH "/home/user/.config/color-lines/scores"
+	#define PREFS_PATH  "/home/user/.config/color-lines/prefs"
 #else
-#define SAVE_PATH get_path(0)
+	#define SIZE_STEPS  16
+	static char SAVE_PATH   [ PATH_MAX ];
+	static char SCORES_PATH [ PATH_MAX ];
+	static char PREFS_PATH  [ PATH_MAX ];
 #endif
 
-#ifdef MAEMO
-#define SCORES_PATH "/home/user/.color-lines-scores"
-#else
-#define SCORES_PATH get_path(1)
-#endif
+#define _max(a,b) (((a)>(b))?(a):(b))   // developer: 'max' was a global define, so it was replaced to '_max'
+#define _min(a,b) (((a)<(b))?(a):(b))   // developer: 'min' was a global define, so it was replaced to '_min'
 
-#ifdef MAEMO
-#define PREFS_PATH "/home/user/.color-lines"
-#else
-#define PREFS_PATH get_path(2)
-#endif
+#define SCREEN_W    800
+#define SCREEN_H    480
 
-#define _max(a,b) (((a)>(b))?(a):(b))	// developer: 'max' was a global define, so it was replaced to '_max'
-#define _min(a,b) (((a)<(b))?(a):(b))     // developer: 'min' was a global define, so it was replaced to '_min'
+#define POOL_SPACE  8
+#define FONT_WIDTH  24
+#define SCORES_X    60
+#define SCORES_Y    225
+#define SCORES_W   (BOARD_X - TILE_WIDTH - SCORES_X - 40)
+#define SCORE_X     0
+#define SCORE_Y     175
+#define SCORE_W    (BOARD_X - 23)
+#define ALPHA_STEPS 16
+#define BALLS_NR    7
+#define JUMP_STEPS  8
+#define JUMP_MAX    0.8
+#define BALL_STEP   25
+#define TILE_WIDTH  50
+#define TILE_HEIGHT 50
 
-#define SCREEN_W	800
-#define SCREEN_H	480
-
-#define POOL_SPACE	8
-#define FONT_WIDTH	24
-#define SCORES_X	60
-#define SCORES_Y	225
-#define SCORES_W	(BOARD_X - TILE_WIDTH - SCORES_X - 40)
-#define SCORE_X		0
-#define SCORE_Y		175
-#define SCORE_W		(BOARD_X - 23)
-#define ALPHA_STEPS	16 // 16
-#define BALLS_NR	7
-#ifdef MAEMO
-#define SIZE_STEPS	8 // 16
-#else
-#define SIZE_STEPS	16
-#endif
-#define JUMP_STEPS	8
-#define JUMP_MAX	0.8
-#define BALL_STEP	25
-#define TILE_WIDTH	50
-#define TILE_HEIGHT	50
-
-#define BOARD_X (800 - 450 - 15)
-#define BOARD_Y (15)
-#define BOARD_WIDTH (BOARD_W * TILE_WIDTH)
+#define BOARD_X      (800 - 450 - 15)
+#define BOARD_Y      (15)
+#define BOARD_WIDTH  (BOARD_W * TILE_WIDTH)
 #define BOARD_HEIGHT (BOARD_H * TILE_HEIGHT)
-#define SPECIAL_BALLS	4
-#define BALL_JOKER	8
-#define BALL_BOMB	9
-#define BALL_BRUSH	10
+#define SPECIAL_BALLS 4
+#define BALL_JOKER    8
+#define BALL_BOMB     9
+#define BALL_BRUSH    10
 
-static int g_mouse_down = 0;
-static int update_needed = 0;
-static int g_volume = 256;
+static bool g_snd_disabled = false;
+static bool g_info_window  = false;
+static bool update_needed  = false;
+static bool g_mouse_down   = false;
+static bool g_music        = true;
+static bool g_prefs        = false;
+static int  g_volume       = 256;
 
 static int restart_x;
 static int restart_y;
@@ -84,23 +81,20 @@ static int restart_h;
 
 static int music_w;
 static int music_h;
-
 static int music_x;
 static int music_y;
 
 static int info_w;
 static int info_h;
-
 static int info_x;
 static int info_y;
 
 static int vol_w;
 static int vol_h;
 
-static int g_snd_disabled = 0;
 // pthread_mutex_t game_lock = PTHREAD_MUTEX_INITIALIZER;
 
-SDL_mutex 	*game_mutex;
+SDL_mutex *game_mutex;
 
 void game_lock(void)
 {
@@ -114,63 +108,58 @@ void game_unlock(void)
 //	pthread_mutex_unlock(&board_mutex);
 }
 
+int   moving_nr = 0;
+fnt_t font;
 #ifndef MAEMO
-img_t	pb_logo = NULL;
+img_t pb_logo = NULL;
 #endif
-img_t	bg_saved = NULL;
-static int g_info_window = 0;
+img_t bg_saved = NULL;
+img_t balls[BALLS_NR + SPECIAL_BALLS][ALPHA_STEPS];
+img_t resized_balls[BALLS_NR + SPECIAL_BALLS][SIZE_STEPS];
+img_t jumping_balls[BALLS_NR + SPECIAL_BALLS][JUMP_STEPS];
+img_t cell, bg;
+img_t music_on, music_off, info_on, info_off, vol_empty, vol_full;
 
-int 	moving_nr = 0;
-fnt_t	font;
-img_t	balls[BALLS_NR + SPECIAL_BALLS][ALPHA_STEPS];
-img_t	resized_balls[BALLS_NR + SPECIAL_BALLS][SIZE_STEPS];
-img_t	jumping_balls[BALLS_NR + SPECIAL_BALLS][JUMP_STEPS];
-img_t	cell;
-img_t	bg;
-img_t	music_on, music_off, info_on, info_off, vol_empty, vol_full;
+bool alpha = true;
 
-#ifdef SHOW_CLOCK
-static int show_time(int force)
+#ifdef MAEMO
+	alpha = false;
+#endif
+
+static void show_time(bool force)
 {
+#ifdef SHOW_CLOCK
 	static int last_w = 0;
 	static int last_minute = -1;
-	int w;
-	char buf[64];
-	time_t t;
-	struct tm *tm;
-	t = time(NULL);
-	tm = localtime(&t);
-	if (!tm)
-		return -1;
-	if (!force && (tm->tm_min == last_minute))
-		return 0;
-	sprintf(buf, "%02d:%02d", tm->tm_hour, tm->tm_min);
-	w = gfx_chars_width(font, buf);
-	if (last_w) {
-		gfx_draw_bg(bg, BOARD_X - POOL_SPACE - last_w, 
-			SCREEN_H - gfx_font_height(font), last_w, gfx_font_height(font));
+	time_t t = time(NULL);
+	struct tm *tm = localtime(&t);
+	if (tm && (force || tm->tm_min != last_minute)) {
+		char buf[64];
+		sprintf(buf, "%02d:%02d", tm->tm_hour, tm->tm_min);
+		int w = gfx_chars_width(font, buf);
+		if (last_w) {
+			gfx_draw_bg(bg, BOARD_X - POOL_SPACE - last_w, SCREEN_H - gfx_font_height(font), last_w, gfx_font_height(font));
+		}
+		gfx_draw_chars(font, buf, BOARD_X - POOL_SPACE - w, SCREEN_H - gfx_font_height(font));
+		gfx_update(BOARD_X - POOL_SPACE - _max(w, last_w), SCREEN_H - gfx_font_height(font), _max(w, last_w), gfx_font_height(font));
+		last_w = w;
+		last_minute = tm->tm_min;
+//		fprintf(stderr,"Times going\n");
 	}
-	gfx_draw_chars(font, buf, BOARD_X - POOL_SPACE - w, SCREEN_H - gfx_font_height(font));
-	gfx_update(BOARD_X - POOL_SPACE - _max(w, last_w), SCREEN_H - gfx_font_height(font),
-		_max(w, last_w), gfx_font_height(font));
-	last_w = w;
-	last_minute = tm->tm_min;
-//	fprintf(stderr,"Times going\n");
-	return 1;
-}
 #endif
+}
 
 static int get_word(const char *str, char *word)
 {
 	int parsed = 0;
 	while (*str && *str != '\n' && *str != ' ') {
 		*word = *str;
-		word ++;
-		str ++;
+		word   ++;
+		str    ++;
 		parsed ++;
 	}
 	while (*str == ' ') {
-		str ++;
+		str    ++;
 		parsed ++;
 	}
 	*word = 0;
@@ -189,17 +178,17 @@ static struct _gfx_word {
 	{ "ball_color5", &balls[4][ALPHA_STEPS - 1] },
 	{ "ball_color6", &balls[5][ALPHA_STEPS - 1] },
 	{ "ball_color7", &balls[6][ALPHA_STEPS - 1] },
-	{ "ball_joker", &balls[7][ALPHA_STEPS - 1] }, 
-	{ "ball_bomb", &balls[8][ALPHA_STEPS - 1] },
-	{ "ball_brush", &balls[9][ALPHA_STEPS - 1] }, 
-	{ "ball_boom", &balls[10][ALPHA_STEPS - 1] },
+	{ "ball_joker" , &balls[7][ALPHA_STEPS - 1] }, 
+	{ "ball_bomb"  , &balls[8][ALPHA_STEPS - 1] },
+	{ "ball_brush" , &balls[9][ALPHA_STEPS - 1] }, 
+	{ "ball_boom" , &balls[10][ALPHA_STEPS - 1] },
 #ifndef MAEMO
 	{ "pb_logo", &pb_logo },
 #endif	
 	{ NULL },
 };
 static void show_info_status(void);
-			
+
 static img_t gfx_word(const char *word)
 {
 	int i = 0;
@@ -207,30 +196,26 @@ static img_t gfx_word(const char *word)
 		if (!strcmp(gfx_words[i].name, word)) {
 			return *gfx_words[i].img;
 		}
-		i ++;
+		i++;
 	}
 	return NULL;
 }
 static const char *game_print(const char *str)
 {
-	int i;
 	int x = BOARD_X;
 	int y = BOARD_Y;
-	int h = gfx_font_height(font);
 	const char *ptr = str;
 	while (*ptr == '\n')
-		ptr ++;
+		ptr++;
 	while (*ptr) {
-		int w;
-		i = 0;
-		w = 0;
-		h = gfx_font_height(font);
+		int w = 0;
+		int h = gfx_font_height(font);
 		while (w < BOARD_WIDTH) {
 			char word[128];
 			int rc;
 			img_t img;
 			rc = get_word(ptr, word);
-//			fprintf(stderr,"get Word:%s:%d\n", word, rc);	
+//			fprintf(stderr,"get Word:%s:%d\n", word, rc);
 			img = gfx_word(word);
 			if (img) {
 				w += gfx_img_w(img);
@@ -256,7 +241,7 @@ static const char *game_print(const char *str)
 			}
 //			fprintf(stderr,"Word:%s\n", word);	
 		}
-		x = BOARD_X;
+		x  = BOARD_X;
 		y += h;
 		if (y >= BOARD_Y + BOARD_HEIGHT - 2*h) {
 			gfx_draw_chars(font, "MORE", BOARD_X, BOARD_Y + BOARD_HEIGHT - h);
@@ -291,10 +276,10 @@ char info_text[] = " -= Color Lines v0.6 =-\n\n"
 #endif	
 	"SPECIAL THANX: All UNIX world... \n\n"
 	" Good Luck!";
-	
+
 static const char *cur_text = info_text;
 
-static int show_info_window(void)
+static bool show_info_window(void)
 {
 	game_lock();
 	if (!bg_saved) {
@@ -302,45 +287,41 @@ static int show_info_window(void)
 			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
 		if (!bg_saved) {
 			game_unlock();
-			return 0;
+			return false;
 		}
 	}
 	if (!*cur_text) {
 		cur_text = info_text;
 		game_unlock();
-		return 1;
+		return true;
 	}
 	gfx_draw_bg(bg, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
 			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
-#ifdef SHOW_CLOCK
-	show_time(1);		
-#endif	
+	show_time(true);
 	cur_text = game_print(cur_text);
 	gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
 			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
-	g_info_window = 1;
+	g_info_window = true;
 	show_info_status();
 	game_unlock();
-	return 0;
+	return false;
 }
 
 static void hide_info_window(void)
 {
 	game_lock();
 	gfx_draw(bg_saved, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y);
-#ifdef SHOW_CLOCK
-	show_time(1);
-#endif	
+	show_time(true);
 	gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
 			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
 	bg_saved = 0;
 	gfx_free_image(bg_saved);
-	g_info_window = 0;
+	g_info_window = false;
 	show_info_status();
 	game_unlock();	
 }
 
-static int info_window(int x, int y)
+static bool info_window(int x, int y)
 {
 	static const char *last_text = NULL;
 	if (x >= BOARD_X && y >= BOARD_Y && x < BOARD_X + BOARD_WIDTH &&
@@ -350,16 +331,12 @@ static int info_window(int x, int y)
 			show_info_window();
 //			hide_info_window();
 		}
-		return 1;
+		return true;
 	}
-	cur_text = last_text;
-	if (!cur_text)
+	if (!(cur_text = last_text))
 		cur_text = info_text;
 	hide_info_window();
-	if (x >= info_x && x < info_x + info_w && y > info_y && y < info_y + info_h) {	
-		return 1;
-	}
-	return 0;	
+	return (x >= info_x && x < info_x + info_w && y > info_y && y < info_y + info_h);
 }
 
 static int running = 1;
@@ -370,8 +347,8 @@ static int	game_hiscores[HISCORES_NR] = { 50, 40, 30, 20, 10 };
 enum {
 	fadein = 1,
 	fadeout,
-	changing, 
-	jumping, 
+	changing,
+	jumping,
 	moving,
 } effect_t;
 
@@ -402,27 +379,24 @@ void draw_ball_size(int n, int x, int y, int size);
 void update_cells(int x1, int y1, int x2, int y2);
 void draw_ball_jump(int n, int x, int y, int num);
 static void show_score(void);
-static int check_hiscores(int score);
+static bool check_hiscores(int score);
 static void show_hiscores(void);
-static void game_message(const char *str, int board);
-static int game_restart(void);
-static int game_loadhiscores(const char *path);
-static int game_savehiscores(const char *path);
-static int game_loadprefs(const char *path);
-static int game_saveprefs(const char *path);
-static int set_volume(int x, int y);
-static int music_switch(int x, int y);
+static void game_message(const char *str, bool board);
+static void game_restart(void);
+static void game_loadhiscores(const char *path);
+static void game_savehiscores(const char *path);
+static void game_loadprefs(const char *path);
+static void game_saveprefs(const char *path);
+static bool set_volume(int x, int y);
+static bool music_switch(int x, int y);
 static void show_music_status(void);
-
-static int g_music = 1;
-static int g_prefs = 0;
 
 static void enable_effect(int x, int y, int effect)
 {
 	gfx_ball_t *b;
 	if (x == -1)
-		b = &game_pool[y];	
-	else 
+		b = &game_pool[y];
+	else
 		b = &game_board[x][y];
 	b->x = x;
 	b->y = y;
@@ -447,7 +421,7 @@ int game_move_ball(void)
 {
 	static int x, y;
 	int tx, ty;
-	int m, s;
+	bool m, s;
 	
 	m = board_moved(&tx, &ty);
 	s = board_selected(&x, &y);
@@ -474,7 +448,7 @@ int game_move_ball(void)
 		game_board[x][y].used = 0;
 		game_board[x][y].cell = 0;
 	}
-	return 1;	
+	return 1;
 }
 
 int game_process_pool(void)
@@ -747,12 +721,10 @@ int game_display_pool(void)
 }
 
 #ifndef MAEMO
-static int load_pb(void)
+static bool load_pb(void)
 {
-	pb_logo = gfx_load_image(GAMEDATADIR"gfx/pb_logo.png", 1);
-	if (!pb_logo)
-		return -1;
-	return 0;	
+	pb_logo = gfx_load_image("pb_logo.png", true);
+	return !pb_logo;
 }
 
 static void free_pb(void)
@@ -763,47 +735,44 @@ static void free_pb(void)
 
 static int load_balls(void)
 {
-	int i, k;
-	img_t ball;
-	ball = gfx_load_image(GAMEDATADIR"gfx/ball.png", 1);
+	img_t ball = gfx_load_image("ball.png", true);
 	if (!ball)
 		return -1;
-	for (i = 1; i <= BALLS_NR + SPECIAL_BALLS; i++) {
-		char fname[255];
+	for (int i = 1; i <= BALLS_NR + SPECIAL_BALLS; i++) {
 		img_t color, new, alph, sized, jumped;
 		if (i == ball_joker) {
-			snprintf(fname, sizeof(fname), GAMEDATADIR"gfx/joker.png");
 			color = NULL;
-			new = gfx_load_image(fname, 1);
+			new = gfx_load_image("joker.png", true);
 		} else if (i == ball_bomb) {
-			new = gfx_load_image(GAMEDATADIR"gfx/atomic.png", 1);
+			new = gfx_load_image("atomic.png", true);
 			color = NULL;
 		} else if (i == ball_brush) {
-			new = gfx_load_image(GAMEDATADIR"gfx/paint.png", 1);
+			new = gfx_load_image("paint.png", true);
 			color = NULL;
 		} else if (i == ball_boom) {
-			new = gfx_load_image(GAMEDATADIR"gfx/boom.png", 1);
+			new = gfx_load_image("boom.png", true);
 			color = NULL;
 		} else {
-			snprintf(fname, sizeof(fname), GAMEDATADIR"gfx/color%d.png", i);
-			color = gfx_load_image(fname, 1);
+			char fname[12];
+			snprintf(fname, sizeof(fname), "color%d.png", i);
+			color = gfx_load_image(fname, true);
 			if (!color)
 				return -1;
 			new = gfx_combine(ball, color);
 		}
 		if (!new)
 			return -1;
-		for (k = 1; k <= ALPHA_STEPS; k++) {
+		for (int k = 1; k <= ALPHA_STEPS; k++) {
 			alph = gfx_set_alpha(new, (255 * 100 ) / (ALPHA_STEPS * 100/k));
 			balls[i - 1][k - 1] = alph;
 		}
-		for (k = 1; k <= SIZE_STEPS; k++) {
+		for (int k = 1; k <= SIZE_STEPS; k++) {
 			float cff = (float)1.0 / ((float)SIZE_STEPS / (float)k);
 			sized = gfx_scale(new, cff, cff);
 			resized_balls[i - 1][k - 1] = sized;
 		}
-		for (k = 1; k <= JUMP_STEPS; k++) {
-			float cff = 1.0 - (((float)(1.0 - JUMP_MAX)/(float)JUMP_STEPS) * k);
+		for (int k = 1; k <= JUMP_STEPS; k++) {
+			float cff = 1.0 - (((float)(1.0 - JUMP_MAX) / (float)JUMP_STEPS) * k);
 			jumped = gfx_scale(new, 1.0 + (1.0 - cff), cff);
 			jumping_balls[i - 1][k - 1] = jumped;
 		}
@@ -816,105 +785,97 @@ static int load_balls(void)
 
 void free_balls(void)
 {
-	int i, k;
-	for (i = 1; i <= BALLS_NR + SPECIAL_BALLS; i++) {
-		for (k = 1; k <= ALPHA_STEPS; k++) {
-			gfx_free_image(balls[i - 1][k - 1]);
+	for (int i = 0; i < BALLS_NR + SPECIAL_BALLS; i++) {
+		for (int k = 0; k < ALPHA_STEPS; k++) {
+			gfx_free_image(balls[i][k]);
 		}
-		for (k = 1; k <= SIZE_STEPS; k++) {
-			gfx_free_image(resized_balls[i - 1][k - 1]);
+		for (int k = 0; k < SIZE_STEPS; k++) {
+			gfx_free_image(resized_balls[i][k]);
 		}
-		for (k = 1; k <= JUMP_STEPS; k++) {
-			gfx_free_image(jumping_balls[i - 1][k - 1]);
+		for (int k = 0; k < JUMP_STEPS; k++) {
+			gfx_free_image(jumping_balls[i][k]);
 		}
 	}
 }
-static int cell_to_screen(int x, int y, int *ox, int *oy)
+
+static void cell_to_screen(int x, int y, int *ox, int *oy)
 {
 	if (x == -1) {
 		*ox = BOARD_X - TILE_WIDTH - POOL_SPACE;
 		*oy = y * TILE_HEIGHT + TILE_HEIGHT * (BOARD_H - POOL_SIZE)/2 + BOARD_Y;
-		return 0;
+	} else {
+		*ox = x * TILE_WIDTH + BOARD_X;
+		*oy = y * TILE_HEIGHT + BOARD_Y;
 	}
-	*ox = x * TILE_WIDTH + BOARD_X;
-	*oy = y * TILE_HEIGHT + BOARD_Y;
-	return 0;
 }
 
-int load_cell(void)
+bool load_cell(void)
 {
-#ifdef MAEMO
-	cell = gfx_load_image(GAMEDATADIR"gfx/cell.png", 0);
-#else
-	cell = gfx_load_image(GAMEDATADIR"gfx/cell.png", 1);
-#endif	
-	if (!cell)
-		return -1;
-	return 0;	
+	cell = gfx_load_image("cell.png", alpha);
+	return !cell;
 }
 
-static int load_music(void)
+static bool load_music(void)
 {
-	music_on = gfx_load_image(GAMEDATADIR"gfx/music_on.png", 1);
-	music_off = gfx_load_image(GAMEDATADIR"gfx/music_off.png", 1);
-	if (!music_on || !music_off)
-		return -1;
-	music_w = gfx_img_w(music_on);
-	music_h = gfx_img_h(music_on);	
-	music_x = 0;
-	music_y = SCREEN_H - music_h;
-	return 0;	
+	music_on  = gfx_load_image("music_on.png", true);
+	music_off = gfx_load_image("music_off.png", true);
+	bool stat = !music_on || !music_off;
+	if (!stat) {
+		music_w = gfx_img_w(music_on);
+		music_h = gfx_img_h(music_on);
+		music_x = 0;
+		music_y = SCREEN_H - music_h;
+	}
+	return stat;
 }
 
-static int music_switch(int x, int y)
+static bool music_switch(int x, int y)
 {
-	if (g_snd_disabled)
-		return 0;
-	if (x >= music_x && y >= music_y &&
-		 x < music_x + music_w && y < music_y + music_h ) {
+	bool stat = !g_snd_disabled && x >= music_x && y >= music_y && x < music_x + music_w && y < music_y + music_h;
+	if ( stat) {
 		g_music ^= 1;
-		g_prefs = 1;
-		if (g_music) {
-			if (!snd_music_start())
-			g_music = 0;
-		} 
+		g_prefs  = true;
+		if (g_music)
+			g_music = snd_music_start();
 		if (!g_music)
 			snd_music_stop();
-		show_music_status();	
-		return 1;
-	} 
-	return 0;
+		show_music_status();
+	}
+	return stat;
 }
+
 static void free_music(void)
 {
 	gfx_free_image(music_on);
 	gfx_free_image(music_off);
 }
 
-static int load_info(void)
+static bool load_info(void)
 {
-	info_on = gfx_load_image(GAMEDATADIR"gfx/info_on.png", 1);
-	info_off = gfx_load_image(GAMEDATADIR"gfx/info_off.png", 1);
-	if (!info_on || !info_off)
-		return -1;
-	info_w = gfx_img_w(info_off);
-	info_h = gfx_img_h(info_off);	
-	info_x = 0; //BOARD_X - info_w;
-	info_y = music_y - info_h;
-	return 0;	
+	info_on   = gfx_load_image("info_on.png", true);
+	info_off  = gfx_load_image("info_off.png", true);
+	bool stat = !info_on || !info_off;
+	if (!stat) {
+		info_w = gfx_img_w(info_off);
+		info_h = gfx_img_h(info_off);
+		info_x = 0; //BOARD_X - info_w;
+		info_y = music_y - info_h;
+	}
+	return stat;
 }
 
 static int vol_off;
-static int load_volume(void)
+static bool load_volume(void)
 {
-	vol_empty = gfx_load_image(GAMEDATADIR"gfx/vol_empty.png", 1);
-	vol_full = gfx_load_image(GAMEDATADIR"gfx/vol_full.png", 1);
-	if (!vol_empty || !vol_full)
-		return -1;
-	vol_w = gfx_img_w(vol_empty);
-	vol_h = gfx_img_h(vol_empty);	
-	vol_off = vol_w / 4;
-	return 0;	
+	vol_empty = gfx_load_image("vol_empty.png", true);
+	vol_full  = gfx_load_image("vol_full.png", true);
+	bool stat = !vol_empty || !vol_full;
+	if (!stat) {
+		vol_w = gfx_img_w(vol_empty);
+		vol_h = gfx_img_h(vol_empty);
+		vol_off = vol_w / 4;
+	}
+	return stat;
 }
 
 static void free_volume(void)
@@ -928,34 +889,28 @@ static void show_volume()
 {
 	int x = music_w;
 	int y = SCREEN_H - music_h;
-	int w;
 	game_lock();
-	w = g_volume * (vol_w - vol_off) / 256;
+	int w = g_volume * (vol_w - vol_off) / 256;
 	game_unlock();
 	gfx_draw_bg(bg, x, y, vol_w, vol_h);
 	gfx_draw(vol_empty, x, y);
-	if (!g_volume)
-		gfx_draw_wh(vol_full, x, y, 0, gfx_img_h(vol_full));
-	else	
-		gfx_draw_wh(vol_full, x, y, w + vol_off, gfx_img_h(vol_full));
+	gfx_draw_wh(vol_full, x, y, (g_volume ? w + vol_off : 0), gfx_img_h(vol_full));
 	gfx_update(x, y, vol_w, vol_h);
 }
 
-static int set_volume(int x, int y)
+static bool set_volume(int x, int y)
 {
 	int disp;
 	
-	if (g_snd_disabled)
-		return 0;
-		
-	if (x < music_w || y < SCREEN_H - music_h || x > music_w + vol_w || y > SCREEN_H)
-		return 0;
+	if (g_snd_disabled || x < music_w || y < SCREEN_H - music_h || x > music_w + vol_w || y > SCREEN_H)
+		return false;
+	
 	disp = x - music_w;
 	if (disp < vol_off)
 		disp = vol_off;
 	else if (disp > vol_w)
-		disp = vol_w;	
-	disp -= vol_off;	
+		disp = vol_w;
+	disp -= vol_off;
 	game_lock();
 	g_volume = (256 * disp) / (vol_w - vol_off);
 	game_unlock();
@@ -963,10 +918,9 @@ static int set_volume(int x, int y)
 	if (!g_volume)
 		snd_music_stop();
 	else if (g_music)
-		snd_music_start();	
+		snd_music_start();
 	show_volume();
-	g_prefs = 1;	
-	return 1;
+	return (g_prefs = true);
 }
 
 static void free_info(void)
@@ -975,12 +929,10 @@ static void free_info(void)
 	gfx_free_image(info_off);
 }
 
-int load_bg(void)
+bool load_bg(void)
 {
-	bg = gfx_load_image(GAMEDATADIR"gfx/bg.png", 0);
-	if (!bg)
-		return -1;
-	return 0;	
+	bg = gfx_load_image("bg.png", false);
+	return !bg;	
 }
 
 void free_cell(void)
@@ -997,26 +949,25 @@ void draw_cell(int x, int y)
 {
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
-#ifndef MAEMO	
+#ifndef MAEMO
 	gfx_draw_bg(bg, nx, ny, TILE_WIDTH, TILE_HEIGHT);
-#endif	
+#endif
 	gfx_draw(cell, nx, ny);
 }
 
-
 void update_cell(int x, int y)
 {
-	update_needed = 1;
+	update_needed = true;
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
-#ifdef MAEMO	
+#ifdef MAEMO
 	gfx_update(nx, ny, TILE_WIDTH, TILE_HEIGHT);
-#endif	
+#endif
 }
 
 void update_cells(int x1, int y1, int x2, int y2)
 {
-	update_needed = 1;
+	update_needed = true;
 	int nx1, ny1;
 	int nx2, ny2;
 	int tmp;
@@ -1039,9 +990,8 @@ void update_cells(int x1, int y1, int x2, int y2)
 
 void mark_cells_dirty(int x1, int y1, int x2, int y2)
 {
-//	update_needed = 1;
-	int x;
-	int tmp;
+//	update_needed = true;
+	int x, tmp;
 	if (x1 > x2) {
 		tmp = x2;
 		x2 = x1;
@@ -1063,10 +1013,10 @@ void update_all(void)
 {
 #ifndef MAEMO
 	if (update_needed)
-		gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE, 
+		gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE,
 			BOARD_Y, BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
-#endif		
-	update_needed = 0;
+#endif
+	update_needed = false;
 }
 
 
@@ -1096,7 +1046,7 @@ void draw_ball_size(int n, int x, int y, int size)
 {
 	int nx, ny;
 	SDL_Surface *img = (SDL_Surface *)resized_balls[n][size];
-	int diff = ((TILE_WIDTH - img->w) /2);
+	int diff = (TILE_WIDTH - img->w) / 2;
 	cell_to_screen(x, y, &nx, &ny);
 	gfx_draw(img, nx + diff, ny + diff);
 }
@@ -1105,17 +1055,16 @@ void draw_ball_jump(int n, int x, int y, int num)
 {
 	int nx, ny;
 	SDL_Surface *img = (SDL_Surface *)jumping_balls[n][num];
-	int diff = (40 - img->h) + 5;
-	int diffx = ((TILE_WIDTH - img->w) /2);
+	int diff  = (40 - img->h) + 5;
+	int diffx = (TILE_WIDTH - img->w) / 2;
 	cell_to_screen(x, y, &nx, &ny);
 	gfx_draw(img, nx + diffx, ny + diff);
 }
 
 static void fetch_game_board(void)
 {
-	int x, y;
-	for (y = 0; y < BOARD_H; y ++) {
-		for (x = 0; x < BOARD_W; x++) {
+	for (int y = 0; y < BOARD_H; y++) {
+		for (int x = 0; x < BOARD_W; x++) {
 			game_board[x][y].cell = board_cell(x, y);
 			if (game_board[x][y].cell) {
 				game_board[x][y].x = x;
@@ -1128,8 +1077,7 @@ static void fetch_game_board(void)
 
 static void draw_board(void)
 {
-	int x, y;
-	for (y = 0; y < BOARD_H; y ++) {
+	for (int x, y = 0; y < BOARD_H; y ++) {
 		for (x = 0; x < BOARD_W; x++) {
 			draw_cell(x, y);
 			if (game_board[x][y].cell && game_board[x][y].used) {
@@ -1139,21 +1087,20 @@ static void draw_board(void)
 	}
 }
 
-static int game_loop() {
-    // Main loop
+static void game_loop() {
+	// Main loop
 	SDL_Event event;
 	int x,y;
 	while (running) {
 		if (SDL_WaitEvent(&event)) {
 			if (event.key.state == SDL_PRESSED) {
 				if (event.key.keysym.sym == SDLK_ESCAPE
-#ifdef MAEMO				
+#ifdef MAEMO
 				|| event.key.keysym.sym == SDLK_F4
 				|| event.key.keysym.sym == SDLK_F5 
 				|| event.key.keysym.sym == SDLK_F6
 #endif
 				) {
-				
 					game_lock();
 					running = 0;
 					game_unlock();
@@ -1176,12 +1123,12 @@ static int game_loop() {
 				break;
 			case SDL_MOUSEBUTTONUP:	
 				game_lock();
-				g_mouse_down = 0;
+				g_mouse_down = false;
 				game_unlock();
 				break;
 			case SDL_MOUSEBUTTONDOWN:
 				game_lock();
-				g_mouse_down = 1;
+				g_mouse_down = true;
 				game_unlock();
 				x = event.button.x;
 				y = event.button.y;
@@ -1219,16 +1166,15 @@ static int game_loop() {
 						game_restart();
 					}
 				}
-	 	             	break;
-	            	}
+				break;
+			}
 		}
-		
 	}
 	if (board_running())
 		board_save(SAVE_PATH);
-	return 0;
 }
-static int game_over = 0;
+
+static bool game_over = false;
 static Uint32 callback(Uint32 interval)
 {
 	game_lock();
@@ -1236,14 +1182,11 @@ static Uint32 callback(Uint32 interval)
 		game_unlock();
 		return 0;
 	}
-#ifdef SHOW_CLOCK
-	show_time(0);
-#endif	
+	show_time(false);
 	if (g_info_window) {
 		game_unlock();
 		return interval;
 	}
-
 	game_move_ball();
 	game_process_board();
 	game_process_pool();
@@ -1258,8 +1201,7 @@ static Uint32 callback(Uint32 interval)
 	if (!game_display_board()) { /* nothing todo */
 		board_logic();
 		if (!board_running() && !update_needed && !game_over) {
-			game_over  = 1;
-			game_message("Game Over!", 1);			
+			game_message("Game Over!", (game_over = true));
 			if (check_hiscores(board_score())) {
 				snd_play(SND_HISCORE, 1);
 				show_hiscores();
@@ -1269,7 +1211,6 @@ static Uint32 callback(Uint32 interval)
 			remove(SAVE_PATH);
 		}
 	}
-	
 	update_all();
 	game_unlock();
 	return interval;
@@ -1291,7 +1232,7 @@ static void show_score(void)
 	
 	if (board_score_mul() < cur_mul)
 		cur_mul = board_score_mul();
-
+	
 	if (new_score > cur_score || cur_score == -1) {
 		h = gfx_font_height(font);
 		if ((board_score_mul() > cur_mul) && (board_score_mul() > 1) && !(timer % BONUS_BLINKS)) {
@@ -1310,7 +1251,6 @@ static void show_score(void)
 			if (!timer)
 				timer = BONUS_TIMER;
 		} else if (!timer) {
-
 			snprintf(buff, sizeof(buff), "SCORE:%d", ++ cur_score);
 			if (cur_score != new_score) {
 				snd_play(SND_CLICK, 1);
@@ -1324,125 +1264,101 @@ static void show_score(void)
 			score_w = w;
 		}
 	}
-
 	if (timer == 1) {
 		cur_mul = board_score_mul();
 	}
 	if (timer)
-		timer --;
+		timer--;
 }
 
-static int game_savehiscores(const char *path)
-{
-	int i;
-	FILE *f = fopen(path, "w");
-	if (!f)
-		return -1;
-
-	for (i = 0; i < HISCORES_NR; i++) {
-		if (fwrite(&game_hiscores[i], sizeof(game_hiscores[i]), 1, f) != 1)
-			goto err;
-	}
-	fclose(f);
-	return 0;
-err:		
-	fclose(f);
-	return -1;
-}
-
-static int game_loadhiscores(const char *path)
-{
-	int i;
-	FILE *f = fopen(path, "r");
-	if (!f)
-		return -1;
-
-	for (i = 0; i < HISCORES_NR; i++) {
-		if (fread(&game_hiscores[i], sizeof(game_hiscores[i]), 1, f) != 1)
-			goto err;
-	}
-	fclose(f);
-	return 0;
-err:		
-	fclose(f);
-	return -1;
-}
-
-static int game_loadprefs(const char *path)
-{
-	FILE *f = fopen(path, "r");
-	if (!f)
-		return -1;
-	if (fread(&g_music, sizeof(g_music), 1, f) != 1)
-		goto err;
-	if (fread(&g_volume, sizeof(g_volume), 1, f) != 1)
-		goto err;
-	if (g_volume > 256 || g_volume < 0)
-		g_volume = 256;
-	fclose(f);
-	return 0;
-err:		
-	fclose(f);
-	return -1;
-}
-
-static int game_saveprefs(const char *path)
+static void game_savehiscores(const char *path)
 {
 	FILE *f = fopen(path, "w");
-	if (!f)
-		return -1;
-	if (fwrite(&g_music, sizeof(g_music), 1, f) != 1)
-		goto err;
-	if (fwrite(&g_volume, sizeof(g_volume), 1, f) != 1)
-		goto err;
-	fclose(f);
-	return -1;
-err:		
-	fclose(f);
-	return -1;
+	if (f) {
+		for (int i = 0; i < HISCORES_NR; i++) {
+			if (fwrite(&game_hiscores[i], sizeof(game_hiscores[i]), 1, f) != 1)
+				break;
+		}
+		fclose(f);
+	}
 }
 
-static int check_hiscores(int score)
+static void game_loadhiscores(const char *path)
 {
-	int i, k;
-	for (i = 0; i < HISCORES_NR; i++) {
-		if (score > game_hiscores[i]) {
-			for (k = HISCORES_NR - 1; k > i; k --) {
+	FILE *f = fopen(path, "r");
+	if (f) {
+		for (int i = 0; i < HISCORES_NR; i++) {
+			if (fread(&game_hiscores[i], sizeof(game_hiscores[i]), 1, f) != 1)
+				break;
+		}
+		fclose(f);
+	}
+}
+
+static void game_loadprefs(const char *path)
+{
+	FILE *f = fopen(path, "r");
+	if (f) {
+		if (
+			fread(&g_music , sizeof(g_music) , 1, f) &&
+			fread(&g_volume, sizeof(g_volume), 1, f) &&
+		   (g_volume > 256 || g_volume < 0)
+		)
+			g_volume = 256;
+		fclose(f);
+	}
+}
+
+static void game_saveprefs(const char *path)
+{
+	FILE *f = fopen(path, "w");
+	if (f) {
+		fwrite(&g_music , sizeof(g_music) , 1, f);
+		fwrite(&g_volume, sizeof(g_volume), 1, f);
+		fclose(f);
+	}
+}
+
+static bool check_hiscores(int score)
+{
+	bool stat = false;
+	for (int i = 0; i < HISCORES_NR; i++) {
+		if ((stat = score > game_hiscores[i])) {
+			for (int k = HISCORES_NR - 1; k > i; k--) {
 				game_hiscores[k] = game_hiscores[k - 1];
 			}
 			game_hiscores[i] = score;
 			game_savehiscores(SCORES_PATH);
-			return i + 1;
+			break;
 		}
 	}
-	return 0;
+	return stat;
 }
 
 static void show_hiscores(void)
 {
 	char buff[64];
-	int w, i;
 	int h = gfx_font_height(font);
 	gfx_draw_bg(bg, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
-	for (i = 0; i < HISCORES_NR; i++) {
+	for (int w, i = 0; i < HISCORES_NR; i++) {
 		snprintf(buff, sizeof(buff),"%d", i + 1);
 		w = gfx_chars_width(font, buff);
 		snprintf(buff, sizeof(buff),"%d.", i + 1);
 		gfx_draw_chars(font, buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h);
-		snprintf(buff, sizeof(buff),"%d", game_hiscores[i]);	
+		snprintf(buff, sizeof(buff),"%d", game_hiscores[i]);
 		w = gfx_chars_width(font, buff);
 		gfx_draw_chars(font, buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h);
 	}
 	gfx_update(SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
 }
 
-static void game_message(const char *str, int board)
+static void game_message(const char *str, bool board)
 {
 	int w = gfx_chars_width(font, str);
 	int x = BOARD_X + (BOARD_WIDTH - w) / 2;
 	int y = BOARD_Y + (BOARD_HEIGHT - gfx_font_height(font)) / 2;
 	if (!board) {
-		x = ( SCREEN_W - w )/ 2;
+		x = (SCREEN_W - w ) / 2;
 		y = (SCREEN_H - gfx_font_height(font)) / 2;
 	}
 	gfx_draw_chars(font, str, x, y);
@@ -1459,10 +1375,9 @@ static void draw_buttons(void)
 	restart_w = w;
 	restart_h = h;
 	gfx_draw_chars(font, restart, restart_x, restart_y);
-	return;
 }
 
-static int game_prep(void)
+static void game_prep(void)
 {
 	game_lock();
 	gfx_draw_bg(bg, 0, 0, SCREEN_W, SCREEN_H);
@@ -1475,38 +1390,27 @@ static int game_prep(void)
 	score_x = SCORE_X + ((SCORE_W) / 2);
 	score_w = 0;
 	game_unlock();
-	return 0;
 }
-
 
 static void show_music_status(void)
 {
 	gfx_draw_bg(bg, music_x, music_y, music_w, music_h);
-	if (g_music)
-		gfx_draw(music_on, music_x, music_y);
-	else	
-		gfx_draw(music_off, music_x, music_y);
+	gfx_draw((g_music ? music_on : music_off), music_x, music_y);
 	gfx_update(music_x, music_y, music_w, music_h);
-	return;
 }
 
 static void show_info_status(void)
 {
 	gfx_draw_bg(bg, info_x, info_y, info_w, info_h);
-	if (g_info_window)
-		gfx_draw(info_on, info_x, info_y);
-	else	
-		gfx_draw(info_off, info_x, info_y);
+	gfx_draw((g_info_window ? info_on : info_off), info_x, info_y);
 	gfx_update(info_x, info_y, info_w, info_h);
-	return;
 }
 
-
-static int game_restart(void)
+static void game_restart(void)
 {
 	game_lock();
-	update_needed = 0;
-	game_over = 0;
+	update_needed = false;
+	game_over = false;
 	board_init();
 	game_init();
 	draw_board();
@@ -1515,23 +1419,20 @@ static int game_restart(void)
 	cur_mul = 0;
 	show_score();
 	show_hiscores();
-#ifdef SHOW_CLOCK
-	show_time(1);
-#endif	
+	show_time(true);
 	game_unlock();
-	return 0;
 }
 
-static int game_load(void)
+static bool game_load(void)
 {
 	game_lock();
-	update_needed = 0;
+	update_needed = false;
 	board_init();
 	if (board_load(SAVE_PATH)) {
 		game_unlock();
-		return -1;
+		return true;
 	}
-	game_over = 0;
+	game_over = false;
 	game_init();
 	fetch_game_board();
 	draw_board();
@@ -1540,70 +1441,119 @@ static int game_load(void)
 	cur_mul = board_score_mul();
 	show_score();
 	show_hiscores();
-#ifdef SHOW_CLOCK
-	show_time(1);
-#endif	
+	show_time(true);
 	game_unlock();
-	return 0;
+	return false;
 }
 
-#ifndef WINDOWS
-int main(int argc, char **argv)
-#else
+#if defined WINDOWS
+
 int WINAPI WinMain (HINSTANCE hInstance,
-                        HINSTANCE hPrevInstance, 
-                        PSTR szCmdLine, 
-                        int iCmdShow)
+                    HINSTANCE hPrevInstance,
+                    PSTR szCmdLine,
+                    int iCmdShow) {
+	
+	size_t c = sizeof(GAME_DATA_DIR);
+	GetModuleFileName(NULL, GAME_DATA_DIR, c);
+	
+	char config_dir[ PATH_MAX ];
+	SHGetFolderPath( NULL,
+		CSIDL_FLAG_CREATE | CSIDL_LOCAL_APPDATA,
+		NULL,
+		0,
+		(LPTSTR)config_dir );
+	
+	strcpy( PREFS_PATH, ( strlen( config_dir ) ? config_dir : "." ));
+	fprintf(stderr,"prefsdir:   %s\n", appdir);
+
+#else
+	
+int main(int argc, char **argv) {
+	
+	char config_dir[ PATH_MAX ];
+	struct passwd *pw = getpwuid(getuid());
+	uint32_t c = sizeof(GAME_DATA_DIR);
+	
+	#if defined MACOS
+		_NSGetExecutablePath(GAME_DATA_DIR, &c);
+		puts("This is macOS");
+	#elif defined LINUX
+		if (readlink("/proc/self/exe", GAME_DATA_DIR, c) != -1);
+			puts("This is Linux");
+	#elif defined SOLARIS
+		strcpy(GAME_DATA_DIR, getexecname());
+		puts("This is Solaris");
+	#elif defined FREEBSD
+		sysctl({CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1}, 4, GAME_DATA_DIR, &c, NULL, 0);
+		puts("This is FreeBSD");
+	#elif defined NETBSD
+		if (readlink("/proc/curproc/exe", GAME_DATA_DIR, c) != -1);
+			puts("This is NetBSD");
+	#else
+		strncpy(GAME_DATA_DIR, argv[0], c);
+	#endif
+	
+	#if defined MAEMO
+		putenv("SDL_VIDEO_X11_WMCLASS=lines");
+		strcpy(config_dir, "/home/user/.config");
+	#else
+		strcpy(config_dir, (pw ? pw->pw_dir : "/tmp"));
+		strcat(config_dir, "/.config");
+		strcpy(SAVE_PATH  , config_dir); strcat(SAVE_PATH  , "/color-lines/save");
+		strcpy(SCORES_PATH, config_dir); strcat(SCORES_PATH, "/color-lines/scores");
+		strcpy(PREFS_PATH , config_dir); strcat(PREFS_PATH , "/color-lines/prefs");
+	#endif
+	
+	if (access(config_dir, F_OK ) == -1)
+		mkdir(config_dir, 0755);
+	
+	strcat(config_dir, "/color-lines");
+	
+	if (access(config_dir, F_OK ) == -1)
+		mkdir(config_dir, 0755);
+	
+	do {
+		c--;
+	} while (GAME_DATA_DIR[c] != '/');
+	
+	GAME_DATA_DIR[c + 1] = '\0';
+	
 #endif
-{
-#ifdef MAEMO
-	putenv("SDL_VIDEO_X11_WMCLASS=lines");
-#endif
+	
 	game_mutex = SDL_CreateMutex();
-	if (gfx_init())
+	if (gfx_init(GAME_DATA_DIR))
 		return 1;
-	if (snd_init()) {
-		g_snd_disabled = 1;	
-	}
+	if (snd_init(GAME_DATA_DIR))
+		g_snd_disabled = true;
+	
 	game_loadprefs(PREFS_PATH);
-	if (!g_snd_disabled)
+	
+	if (g_snd_disabled) {
+		g_volume = 0;
+	} else
 		snd_volume(g_volume);
-	else
-		g_volume = 0;	
-	if (g_music) {
-		if (!snd_music_start())
-			g_music = 0;
+	if (g_music && !snd_music_start()) {
+		g_music = false;
 	}
-
-	font = gfx_load_font(GAMEDATADIR"gfx/fnt.png", FONT_WIDTH);
-	if (!font)
+	if (!(font = gfx_load_font("fnt.png", FONT_WIDTH)))
 		return 1;
-	game_message("Loading...", 0);	
-
-	if (load_bg())
-		return 1;
-	if (load_balls())
-		return 1;
-	if (load_cell())
-		return 1;
-	if (load_volume())
-		return 1;
-	if (load_music())
-		return 1;
-	if (load_info())
+	
+	game_message("Loading...", false);
+	
+	if (load_bg() || load_balls() || load_cell() || load_volume() || load_music() || load_info())
 		return 1;
 #ifndef	MAEMO
 	if (load_pb())
 		return 1;
 #endif
 	game_loadhiscores(SCORES_PATH);
-	
 	game_prep();
+	
 	if (game_load())
 		game_restart();
+	
 	SDL_SetTimer(20, callback);
 	game_loop();
-
 	game_lock();
 	free_bg();
 	free_cell();
@@ -1613,7 +1563,7 @@ int WINAPI WinMain (HINSTANCE hInstance,
 	free_volume();
 #ifndef MAEMO
 	free_pb();
-#endif	
+#endif
 	game_unlock();
 	snd_done();
 	gfx_done();
@@ -1623,49 +1573,3 @@ int WINAPI WinMain (HINSTANCE hInstance,
 		game_saveprefs(PREFS_PATH);
 	return 0;
 }
-
-#ifndef MAEMO
-char *get_path(int n)
-{
-	static char path[255];
-
-#ifndef WINDOWS
-	struct passwd *pw;
-	pw = getpwuid(getuid());
-	if (!pw) {
-		strcpy(path, "/tmp");
-	} else 
-		snprintf(path, sizeof(path) - 32, "%s", pw->pw_dir);
-#else
-	static char appdir[MAX_PATH];
-
-	SHGetFolderPath( NULL, 
-		CSIDL_FLAG_CREATE | CSIDL_LOCAL_APPDATA,
-		NULL,
-		0, 
-		(LPTSTR)appdir );
-
-	if ( !strlen( appdir ) )
-	{
-		strcpy( path, "." );
-	}
-	else
-                    {
-		strcpy( path, appdir );
-                    }
-#endif
-
-	switch (n) {
-	case 0:
-		strcat(path,"/.lines-save");
-		break;
-	case 1:
-		strcat(path,"/.lines-scores");
-		break;	
-	case 2:
-		strcat(path,"/.lines");
-		break;	
-	}
-	return path;
-}
-#endif
