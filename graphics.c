@@ -2,7 +2,10 @@
 #include <SDL_image.h>
 #include "graphics.h"
 #include "math.h"
-	
+
+static SDL_Window *sdlWindow;
+static SDL_Renderer *sdlRenderer;
+static SDL_Texture *sdlTexture;
 static SDL_Surface *screen;
 static char GFX_DIR[ 1024 ];
 
@@ -24,7 +27,7 @@ int	gfx_img_h(img_t pixmap)
 img_t gfx_grab_screen(int x, int y, int w, int h)
 {
 	SDL_Rect dst, src;
-	SDL_Surface *img = SDL_CreateRGBSurface(SDL_HWSURFACE, w, h, 16, 0xF800, 0x7E0, 0x1F, 0);
+	SDL_Surface *img = SDL_CreateRGBSurface(0, w, h, 16, 0xF800, 0x7E0, 0x1F, 0);
 	if (!img)
 		return NULL;
 	src.x = x;
@@ -45,7 +48,7 @@ img_t gfx_set_alpha(img_t src, int alpha)
 	Uint32 col;
 	int size;
 	
-	SDL_Surface *img = SDL_DisplayFormatAlpha((SDL_Surface*)src);
+	SDL_Surface *img = SDL_ConvertSurfaceFormat((SDL_Surface*)src, SDL_PIXELFORMAT_RGBA8888, 0);
 	if (!img)
 		return NULL;
 	ptr = (Uint32*)img->pixels;
@@ -64,7 +67,7 @@ img_t gfx_set_alpha(img_t src, int alpha)
 img_t gfx_combine(img_t src, img_t dst)
 {
 	img_t new;
-	if (!(new = SDL_DisplayFormatAlpha(dst)))
+	if (!(new = SDL_ConvertSurfaceFormat(dst, SDL_PIXELFORMAT_RGBA8888, 0)))
 		return NULL;
 	SDL_BlitSurface((SDL_Surface *)src, NULL, (SDL_Surface *)new, NULL);
 	return new;	
@@ -84,11 +87,11 @@ img_t gfx_load_image(char *filename, bool transparent)
 		return NULL;
 	}
 	if (transparent) {
-		SDL_SetColorKey(img,  SDL_RLEACCEL, img->format->colorkey);
+		SDL_SetColorKey(img, SDL_HasColorKey(img), img->format->format);
 		return img;
 	} 
 	// Create hardware surface
-	img2 = SDL_CreateRGBSurface(SDL_HWSURFACE | (transparent) ? SDL_SRCCOLORKEY : 0, img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0);
+	img2 = SDL_CreateRGBSurface(0, img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0);
 	if (!img2) {
 		SDL_FreeSurface(img);
 		fprintf(stderr, "Error creating surface!\n");
@@ -96,9 +99,9 @@ img_t gfx_load_image(char *filename, bool transparent)
 	}
 	
 	if (transparent)
-		SDL_SetColorKey(img2,  SDL_SRCCOLORKEY | SDL_RLEACCEL, 0xF81F);
+		SDL_SetColorKey(img2, SDL_HasColorKey(img2), 0xF81F);
 	
-	SDL_SetAlpha(img2, 0, 0);
+	//SDL_SetAlpha(img2, 0, 0);
 	SDL_BlitSurface(img, NULL, img2, NULL);
 	SDL_FreeSurface(img);
 	return img2;
@@ -310,10 +313,6 @@ void gfx_clear(int x, int y, int w, int h)
 	SDL_FillRect(screen, &dest, SDL_MapRGB(screen->format, 0, 0, 0));
 }
 
-#ifndef MAEMO
-static	SDL_Surface *icon;
-#endif
-
 bool gfx_init(char *g_datadir)
 {
 	// Initialize SDL
@@ -325,35 +324,47 @@ bool gfx_init(char *g_datadir)
 	strcpy(GFX_DIR, g_datadir);
 	strcat(GFX_DIR, "gfx/");
 	
+	if (SDL_CreateWindowAndRenderer(800, 480,
 #ifdef MAEMO
-	screen = SDL_SetVideoMode(800, 480, 16, SDL_DOUBLEBUF | SDL_HWSURFACE | SDL_FULLSCREEN);
+		SDL_WINDOW_FULLSCREEN_DESKTOP
 #else
-	SDL_WM_SetCaption("Color Lines", NULL);
+		SDL_WINDOW_RESIZABLE
+#endif
+	, &sdlWindow, &sdlRenderer)) {
+		fprintf(stderr, "Unable to set 800x480 video: %s\n", SDL_GetError());
+		return true;
+	}
 	
-	char ipath[1024];
+	SDL_SetWindowTitle( sdlWindow, "Color Lines" );
+	
+	SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY , "linear" );
+	SDL_RenderSetLogicalSize( sdlRenderer, 800, 480 );
+	
+	sdlTexture = SDL_CreateTexture( sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 800, 480 );
+	screen     = SDL_CreateRGBSurface( 0, 800, 480, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000 );
+	
+#ifdef MAEMO
+	SDL_ShowCursor(SDL_DISABLE);
+#else
+	SDL_Surface * icon;
+	char ipath[ 1024 ];
 	
 	strcpy(ipath, g_datadir);
 	strcat(ipath, "gfx/joker.png");
 	
 	if ((icon = IMG_Load(ipath))) {
-		SDL_WM_SetIcon( icon, NULL );
+		SDL_SetWindowIcon( sdlWindow, icon );
 	}
-	
-	screen = SDL_SetVideoMode(800, 480, 32, SDL_DOUBLEBUF | SDL_HWSURFACE);
 #endif
-	if (screen == NULL) {
-		fprintf(stderr, "Unable to set 800x480 video: %s\n", SDL_GetError());
-		return true;
-	}
-#ifdef MAEMO
-	SDL_ShowCursor(SDL_DISABLE);
-#endif	
 	gfx_clear(0, 0, 800, 480);
 	return false;
 }
 
-void gfx_update(int x, int y, int w, int h) {
-	SDL_UpdateRect(screen, x, y, w, h);
+void gfx_update(void) {
+	SDL_UpdateTexture( sdlTexture, NULL, screen->pixels, screen->pitch );
+	SDL_RenderClear( sdlRenderer );
+	SDL_RenderCopy( sdlRenderer, sdlTexture, NULL, NULL );
+	SDL_RenderPresent( sdlRenderer );
 }
 
 void gfx_done(void)
@@ -673,7 +684,7 @@ SDL_Surface *sge_transform_surface(SDL_Surface *src, Uint32 bcol, float angle, f
 	Sint16 qy = -ymin;
 	
 	SDL_Surface *dest;
-	dest = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, src->format->BitsPerPixel, src->format->Rmask, src->format->Gmask, src->format->Bmask, src->format->Amask);
+	dest = SDL_CreateRGBSurface(0, w, h, src->format->BitsPerPixel, src->format->Rmask, src->format->Gmask, src->format->Bmask, src->format->Amask);
 	if(!dest)
 		return NULL;
 	

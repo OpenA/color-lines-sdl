@@ -5,7 +5,7 @@
 #include <time.h>
 #include <SDL.h>
 #include <SDL_thread.h>
-// #include <pthread.h>
+
 #ifdef WINDOWS
 	#include <windows.h>
 	#include <shlobj.h>
@@ -92,20 +92,16 @@ static int info_y;
 static int vol_w;
 static int vol_h;
 
-// pthread_mutex_t game_lock = PTHREAD_MUTEX_INITIALIZER;
-
 SDL_mutex *game_mutex;
 
 void game_lock(void)
 {
 	SDL_mutexP(game_mutex);
-//	pthread_mutex_lock(&board_mutex);
 }
 
 void game_unlock(void)
 {
 	SDL_mutexV(game_mutex);
-//	pthread_mutex_unlock(&board_mutex);
 }
 
 int   moving_nr = 0;
@@ -141,7 +137,7 @@ static void show_time(bool force)
 			gfx_draw_bg(bg, BOARD_X - POOL_SPACE - last_w, SCREEN_H - gfx_font_height(font), last_w, gfx_font_height(font));
 		}
 		gfx_draw_chars(font, buf, BOARD_X - POOL_SPACE - w, SCREEN_H - gfx_font_height(font));
-		gfx_update(BOARD_X - POOL_SPACE - _max(w, last_w), SCREEN_H - gfx_font_height(font), _max(w, last_w), gfx_font_height(font));
+		gfx_update();
 		last_w = w;
 		last_minute = tm->tm_min;
 //		fprintf(stderr,"Times going\n");
@@ -251,7 +247,7 @@ static const char *game_print(const char *str)
 	return ptr;
 }
 
-char info_text[] = " -= Color Lines v0.6 =-\n\n"
+char info_text[] = " -= Color Lines v"CL_VER" =-\n\n"
 	"Try to arrange balls of the same color in vertical, "
 	"horizontal or diagonal lines."
 	"To move a ball click on it to select, "
@@ -299,8 +295,7 @@ static bool show_info_window(void)
 			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
 	show_time(true);
 	cur_text = game_print(cur_text);
-	gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
-			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
+	gfx_update();
 	g_info_window = true;
 	show_info_status();
 	game_unlock();
@@ -312,8 +307,7 @@ static void hide_info_window(void)
 	game_lock();
 	gfx_draw(bg_saved, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y);
 	show_time(true);
-	gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
-			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
+	gfx_update();
 	bg_saved = 0;
 	gfx_free_image(bg_saved);
 	g_info_window = false;
@@ -895,7 +889,7 @@ static void show_volume()
 	gfx_draw_bg(bg, x, y, vol_w, vol_h);
 	gfx_draw(vol_empty, x, y);
 	gfx_draw_wh(vol_full, x, y, (g_volume ? w + vol_off : 0), gfx_img_h(vol_full));
-	gfx_update(x, y, vol_w, vol_h);
+	gfx_update();
 }
 
 static bool set_volume(int x, int y)
@@ -961,7 +955,7 @@ void update_cell(int x, int y)
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
 #ifdef MAEMO
-	gfx_update(nx, ny, TILE_WIDTH, TILE_HEIGHT);
+	gfx_update();
 #endif
 }
 
@@ -984,7 +978,7 @@ void update_cells(int x1, int y1, int x2, int y2)
 	cell_to_screen(x1, y1, &nx1, &ny1);
 	cell_to_screen(x2 + 1, y2 + 1, &nx2, &ny2);
 #ifdef MAEMO	
-	gfx_update(nx1, ny1, nx2 - nx1, ny2 - ny1);
+	gfx_update();
 #endif	
 }
 
@@ -1013,8 +1007,7 @@ void update_all(void)
 {
 #ifndef MAEMO
 	if (update_needed)
-		gfx_update(BOARD_X - TILE_WIDTH - POOL_SPACE,
-			BOARD_Y, BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
+		gfx_update();
 #endif
 	update_needed = false;
 }
@@ -1167,6 +1160,13 @@ static void game_loop() {
 					}
 				}
 				break;
+			case SDL_WINDOWEVENT:
+				switch(event.window.event) {
+				case SDL_WINDOWEVENT_SIZE_CHANGED:
+				case SDL_WINDOWEVENT_MAXIMIZED:
+				case SDL_WINDOWEVENT_MINIMIZED:
+					update_needed = true;
+				}
 			}
 		}
 	}
@@ -1175,7 +1175,7 @@ static void game_loop() {
 }
 
 static bool game_over = false;
-static Uint32 callback(Uint32 interval)
+static Uint32 refresh_screen(Uint32 interval, void *unused)
 {
 	game_lock();
 	if (!running) {
@@ -1245,7 +1245,7 @@ static void show_score(void)
 			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), h);
 			if ((timer / BONUS_BLINKS) & 1)
 				gfx_draw_chars(font, buff, x, SCORE_Y);
-			gfx_update(_min(score_x, x), SCORE_Y, _max(score_w, w), h);
+			gfx_update();
 			score_x = x;
 			score_w = w;
 			if (!timer)
@@ -1259,7 +1259,7 @@ static void show_score(void)
 			x = SCORE_X + ((SCORE_W - w) / 2);
 			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), h);
 			gfx_draw_chars(font, buff, x, SCORE_Y);
-			gfx_update(_min(score_x, x), SCORE_Y, _max(score_w, w), h);
+			gfx_update();
 			score_x = x;
 			score_w = w;
 		}
@@ -1349,7 +1349,7 @@ static void show_hiscores(void)
 		w = gfx_chars_width(font, buff);
 		gfx_draw_chars(font, buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h);
 	}
-	gfx_update(SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
+	gfx_update();
 }
 
 static void game_message(const char *str, bool board)
@@ -1362,7 +1362,7 @@ static void game_message(const char *str, bool board)
 		y = (SCREEN_H - gfx_font_height(font)) / 2;
 	}
 	gfx_draw_chars(font, str, x, y);
-	gfx_update(x, y, w, gfx_font_height(font));
+	gfx_update();
 }
 
 static void draw_buttons(void)
@@ -1382,7 +1382,7 @@ static void game_prep(void)
 	game_lock();
 	gfx_draw_bg(bg, 0, 0, SCREEN_W, SCREEN_H);
 	draw_buttons();
-	gfx_update(0, 0, SCREEN_W, SCREEN_H);
+	gfx_update();
 	show_hiscores();
 	show_music_status();
 	show_volume();
@@ -1396,14 +1396,14 @@ static void show_music_status(void)
 {
 	gfx_draw_bg(bg, music_x, music_y, music_w, music_h);
 	gfx_draw((g_music ? music_on : music_off), music_x, music_y);
-	gfx_update(music_x, music_y, music_w, music_h);
+	gfx_update();
 }
 
 static void show_info_status(void)
 {
 	gfx_draw_bg(bg, info_x, info_y, info_w, info_h);
 	gfx_draw((g_info_window ? info_on : info_off), info_x, info_y);
-	gfx_update(info_x, info_y, info_w, info_h);
+	gfx_update();
 }
 
 static void game_restart(void)
@@ -1414,7 +1414,7 @@ static void game_restart(void)
 	board_init();
 	game_init();
 	draw_board();
-	gfx_update(BOARD_X, BOARD_Y, BOARD_WIDTH, BOARD_HEIGHT);
+	gfx_update();
 	cur_score = -1;
 	cur_mul = 0;
 	show_score();
@@ -1436,7 +1436,7 @@ static bool game_load(void)
 	game_init();
 	fetch_game_board();
 	draw_board();
-	gfx_update(BOARD_X, BOARD_Y, BOARD_WIDTH, BOARD_HEIGHT);
+	gfx_update();
 	cur_score = board_score() - 1;
 	cur_mul = board_score_mul();
 	show_score();
@@ -1552,7 +1552,7 @@ int main(int argc, char **argv) {
 	if (game_load())
 		game_restart();
 	
-	SDL_SetTimer(20, callback);
+	SDL_AddTimer(20, &refresh_screen, NULL);
 	game_loop();
 	game_lock();
 	free_bg();

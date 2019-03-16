@@ -5,7 +5,7 @@
 typedef void* img_t;
 typedef void* fnt_t;
 extern bool gfx_init(char *g_datadir);
-extern void gfx_update(int x, int y, int w, int h);
+extern void gfx_update(void);
 extern void gfx_done(void);
 extern void gfx_clear(int x, int y, int w, int h);
 extern void gfx_draw(img_t pixmap, int x, int y);

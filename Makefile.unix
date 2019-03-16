@@ -1,4 +1,4 @@
-VERSION  := 0.7
+VERSION  := 0.8
 VERTITLE := color-lines-$(VERSION)
 
 OS       := $(shell uname | sed "y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/")
@@ -10,8 +10,8 @@ else ifeq ($(OS),SUNOS)
 endif
 
 PREFIX   := /usr/local
-CFLAGS   := -Wall -O2 $(shell sdl-config --cflags) -D$(OS)
-LDFLAGS  := $(shell sdl-config --libs) -lm -lSDL_image -lSDL_mixer
+CFLAGS   := -Wall -O2 $(shell sdl2-config --cflags) -D$(OS) -DCL_VER=\"$(VERSION)\"
+LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer
 
 SRC      := board.c graphics.c main.c sound.c
 OBJ      := $(patsubst %.c, %.o, $(SRC))
@@ -41,7 +41,7 @@ tar: clean all
 	$(RM) -f $(VERTITLE) *.o color-lines color-lines.desktop
 
 $(OBJ): %.o : %.c
-	$(CC) -c $(<) $(I) $(CFLAGS) -D$(OS)
+	$(CC) -c $(<) $(I) $(CFLAGS)
 
 color-lines:  $(OBJ)
 	cat color-lines.desktop.in | sed -e "s|@BINDIR|$(INSTALLDIR)|g" | sed -e "s|@VER|$(VERSION)|g" > color-lines.desktop

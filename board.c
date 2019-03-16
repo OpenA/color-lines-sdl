@@ -5,7 +5,6 @@
 #include <SDL_thread.h>
 #include <time.h>
 #include "board.h"
-// #include <pthread.h>
 
 #define FL_PATH 0x80
 #define max(a,b) (((a)>(b))?(a):(b))
@@ -52,19 +51,16 @@ unsigned int score;
 unsigned int score_mul;
 unsigned int score_delta;
 
-//pthread_mutex_t board_mutex = PTHREAD_MUTEX_INITIALIZER;
 SDL_mutex *board_mutex;
 
 void board_lock(void)
 {
 	SDL_mutexP(board_mutex);
-//	pthread_mutex_lock(&board_mutex);
 }
 
 void board_unlock(void)
 {
 	SDL_mutexV(board_mutex);
-//	pthread_mutex_unlock(&board_mutex);
 }
 
 static cell_t cell_get(int x, int y);
