@@ -69,7 +69,6 @@ static char GAME_DATA_DIR [ PATH_MAX ];
 static bool g_snd_disabled = false;
 static bool g_info_window  = false;
 static bool update_needed  = false;
-static bool g_mouse_down   = false;
 static bool g_music        = true;
 static bool g_prefs        = false;
 static int  g_volume       = 256;
@@ -273,37 +272,36 @@ char info_text[] = " -= Color Lines v"CL_VER" =-\n\n"
 	"SPECIAL THANX: All UNIX world... \n\n"
 	" Good Luck!";
 
-static const char *cur_text = info_text;
+static const char *cur_text  = info_text;
+static const char *last_text = NULL;
 
-static bool show_info_window(void)
+static void show_info_window(void)
 {
+	last_text = cur_text;
 	game_lock();
-	if (!bg_saved) {
-		bg_saved = gfx_grab_screen(BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
-			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
-		if (!bg_saved) {
-			game_unlock();
-			return false;
-		}
-	}
-	if (!*cur_text) {
+	if (!bg_saved && !(
+		 bg_saved = gfx_grab_screen(
+			BOARD_X - TILE_WIDTH - POOL_SPACE,
+			BOARD_Y,
+			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE,
+			BOARD_HEIGHT))){
+	} else if (!*cur_text) {
 		cur_text = info_text;
-		game_unlock();
-		return true;
+	} else {
+		gfx_draw_bg(bg, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
+				BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
+		show_time(true);
+		cur_text = game_print(cur_text);
+		gfx_update();
+		g_info_window = true;
+		show_info_status();
 	}
-	gfx_draw_bg(bg, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
-			BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
-	show_time(true);
-	cur_text = game_print(cur_text);
-	gfx_update();
-	g_info_window = true;
-	show_info_status();
 	game_unlock();
-	return false;
 }
 
 static void hide_info_window(void)
 {
+	cur_text = last_text ?: info_text;
 	game_lock();
 	gfx_draw(bg_saved, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y);
 	show_time(true);
@@ -312,31 +310,13 @@ static void hide_info_window(void)
 	gfx_free_image(bg_saved);
 	g_info_window = false;
 	show_info_status();
-	game_unlock();	
+	game_unlock();
 }
 
-static bool info_window(int x, int y)
-{
-	static const char *last_text = NULL;
-	if (x >= BOARD_X && y >= BOARD_Y && x < BOARD_X + BOARD_WIDTH &&
-		y < BOARD_Y + BOARD_HEIGHT ) {
-		last_text = cur_text;
-		if (show_info_window()) {
-			show_info_window();
-//			hide_info_window();
-		}
-		return true;
-	}
-	if (!(cur_text = last_text))
-		cur_text = info_text;
-	hide_info_window();
-	return (x >= info_x && x < info_x + info_w && y > info_y && y < info_y + info_h);
-}
-
-static int running = 1;
+static bool running = true;
 
 #define HISCORES_NR	5
-static int	game_hiscores[HISCORES_NR] = { 50, 40, 30, 20, 10 };
+static int game_hiscores[HISCORES_NR] = { 50, 40, 30, 20, 10 };
 
 enum {
 	fadein = 1,
@@ -360,8 +340,8 @@ typedef struct {
 	cell_t	cell_from;
 } gfx_ball_t;
 
-gfx_ball_t	game_board[BOARD_W][BOARD_H];
-gfx_ball_t	game_pool[POOL_SIZE];
+gfx_ball_t game_board[BOARD_W][BOARD_H];
+gfx_ball_t game_pool[POOL_SIZE];
 
 void draw_cell(int x, int y);
 void update_cell(int x, int y);
@@ -381,8 +361,8 @@ static void game_loadhiscores(const char *path);
 static void game_savehiscores(const char *path);
 static void game_loadprefs(const char *path);
 static void game_saveprefs(const char *path);
-static bool set_volume(int x, int y);
-static bool music_switch(int x, int y);
+static int set_volume(int x);
+static void music_switch(int x, int y);
 static void show_music_status(void);
 
 static void enable_effect(int x, int y, int effect)
@@ -823,19 +803,15 @@ static bool load_music(void)
 	return stat;
 }
 
-static bool music_switch(int x, int y)
+static void music_switch(int x, int y)
 {
-	bool stat = !g_snd_disabled && x >= music_x && y >= music_y && x < music_x + music_w && y < music_y + music_h;
-	if ( stat) {
-		g_music ^= 1;
-		g_prefs  = true;
-		if (g_music)
-			g_music = snd_music_start();
-		if (!g_music)
-			snd_music_stop();
-		show_music_status();
-	}
-	return stat;
+	g_music ^= 1;
+	g_prefs  = true;
+	if (g_music)
+		g_music = snd_music_start();
+	if (!g_music)
+		snd_music_stop();
+	show_music_status();
 }
 
 static void free_music(void)
@@ -858,7 +834,6 @@ static bool load_info(void)
 	return stat;
 }
 
-static int vol_off;
 static bool load_volume(void)
 {
 	vol_empty = gfx_load_image("vol_empty.png", true);
@@ -867,7 +842,6 @@ static bool load_volume(void)
 	if (!stat) {
 		vol_w = gfx_img_w(vol_empty);
 		vol_h = gfx_img_h(vol_empty);
-		vol_off = vol_w / 4;
 	}
 	return stat;
 }
@@ -878,43 +852,33 @@ static void free_volume(void)
 	gfx_free_image(vol_full);
 }
 
-
 static void show_volume()
 {
 	int x = music_w;
 	int y = SCREEN_H - music_h;
 	game_lock();
-	int w = g_volume * (vol_w - vol_off) / 256;
+	int w = g_volume * vol_w / 256;
 	game_unlock();
 	gfx_draw_bg(bg, x, y, vol_w, vol_h);
 	gfx_draw(vol_empty, x, y);
-	gfx_draw_wh(vol_full, x, y, (g_volume ? w + vol_off : 0), gfx_img_h(vol_full));
+	gfx_draw_wh(vol_full, x, y, (g_volume ? w : 0), gfx_img_h(vol_full));
 	gfx_update();
 }
 
-static bool set_volume(int x, int y)
+static int set_volume(int x)
 {
-	int disp;
-	
-	if (g_snd_disabled || x < music_w || y < SCREEN_H - music_h || x > music_w + vol_w || y > SCREEN_H)
-		return false;
-	
-	disp = x - music_w;
-	if (disp < vol_off)
-		disp = vol_off;
-	else if (disp > vol_w)
-		disp = vol_w;
-	disp -= vol_off;
+	int disp = x < music_w ? 0 : x > (vol_w + music_w) ? vol_w : x - music_w;
+//	fprintf(stderr,"disp=%d x=%d\n", disp, x);
 	game_lock();
-	g_volume = (256 * disp) / (vol_w - vol_off);
+	g_volume = (256 * disp) / vol_w;
 	game_unlock();
-	snd_volume(g_volume);
-	if (!g_volume)
-		snd_music_stop();
-	else if (g_music)
-		snd_music_start();
+	if (!g_snd_disabled) {
+		snd_volume(g_volume);
+		g_volume ? (g_music ? snd_music_start() : 1) : snd_music_stop();
+	}
 	show_volume();
-	return (g_prefs = true);
+	g_prefs = true;
+	return disp + music_w;
 }
 
 static void free_info(void)
@@ -1083,81 +1047,82 @@ static void draw_board(void)
 static void game_loop() {
 	// Main loop
 	SDL_Event event;
-	int x,y;
+	
+	static struct {
+		int  vol_delta;
+		bool vol_slider, vol_hook;
+		bool cell_board;
+	} element;
+	
+	element.vol_delta = g_volume * vol_w / 256 + music_w;
+	
 	while (running) {
 		if (SDL_WaitEvent(&event)) {
+			//fprintf(stderr,"event %d\n", event.type);
+			int x = event.button.x;
+			int y = event.button.y;
 			if (event.key.state == SDL_PRESSED) {
 				if (event.key.keysym.sym == SDLK_ESCAPE
 #ifdef MAEMO
 				|| event.key.keysym.sym == SDLK_F4
-				|| event.key.keysym.sym == SDLK_F5 
+				|| event.key.keysym.sym == SDLK_F5
 				|| event.key.keysym.sym == SDLK_F6
 #endif
 				) {
 					game_lock();
-					running = 0;
+					running = false;
 					game_unlock();
 				}
 			}
-			switch (event.type) { 
-// Quit the game
-			case SDL_QUIT:
-				running = 0;
+			switch (event.type) {
+			case SDL_QUIT: // Quit the game
+				running = false;
 				break;
-// Button pressed
 			case SDL_MOUSEMOTION:
-				x = event.button.x;
-				y = event.button.y;
-				game_lock();
-				if (g_mouse_down) {
-					set_volume(x, y);
+				element.vol_slider = !(x < music_w || y < SCREEN_H - music_h || x > music_w + vol_w || y > SCREEN_H);
+				element.cell_board = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
+				if (element.vol_hook) {
+					element.vol_delta = set_volume(x);
 				}
-				game_unlock();
 				break;
-			case SDL_MOUSEBUTTONUP:	
-				game_lock();
-				g_mouse_down = false;
-				game_unlock();
+			case SDL_MOUSEBUTTONUP:
+				element.vol_hook = false;
 				break;
-			case SDL_MOUSEBUTTONDOWN:
-				game_lock();
-				g_mouse_down = true;
-				game_unlock();
-				x = event.button.x;
-				y = event.button.y;
-				if (set_volume(x, y))
-					break;
-				if (music_switch(x, y))
-					break;	
-				if (g_info_window) {
-					if (info_window(x, y))
-						break;
-//					g_info_window ^= 1;
-//					hide_info_window();	
-//					break;
+			case SDL_MOUSEBUTTONDOWN: // Button pressed
+				if ((element.vol_hook = element.vol_slider)) {
+					element.vol_delta = set_volume(x);
 				}
-		
-				if (x >= restart_x && y >= restart_y && x < restart_x + restart_w &&
-					y < restart_y + restart_h)  {
+				else if (!(x < music_x || y < music_y || x >= music_x + music_w || y >= music_y + music_h)) {
+					music_switch(x, y);
+				}
+				else if (x >= restart_x && y >= restart_y && x < restart_x + restart_w && y < restart_y + restart_h) {
 					if (board_running() && check_hiscores(board_score())) {
 						snd_play(SND_HISCORE, 1);
 					} else if (board_running()) {
 						snd_play(SND_GAMEOVER, 1);
 					}
 					game_restart();
-				} else if (x >= info_x && x < info_x + info_w && 
-					y >= info_y && y < info_y + info_h) {	
-					show_info_window();
-				} else if (x >= BOARD_X && y >= BOARD_Y &&
-					x < (BOARD_X + BOARD_WIDTH) &&
-					y < (BOARD_Y + BOARD_HEIGHT)) {
-					if (board_running()) {
-						x = (x - BOARD_X) / TILE_WIDTH;
-						y = (y - BOARD_Y) / TILE_HEIGHT;
-						board_select(x, y);
+				}
+				else if (x >= info_x && x < info_x + info_w && y >= info_y && y < info_y + info_h) {
+					g_info_window ? hide_info_window() : show_info_window();
+				}
+				else if (element.cell_board) {
+					if (g_info_window) {
+						show_info_window();
+					} else if (board_running()) {
+						board_select(
+							(x - BOARD_X) / TILE_WIDTH,
+							(y - BOARD_Y) / TILE_HEIGHT);
 					} else {
 						game_restart();
 					}
+				}
+				break;
+			case SDL_MOUSEWHEEL:
+				if (element.vol_slider) {
+					element.vol_delta = set_volume(element.vol_delta + (x ?: y));
+				} else if (element.cell_board && g_info_window) {
+					show_info_window();
 				}
 				break;
 			case SDL_WINDOWEVENT:
@@ -1178,40 +1143,31 @@ static bool game_over = false;
 static Uint32 refresh_screen(Uint32 interval, void *unused)
 {
 	game_lock();
-	if (!running) {
-		game_unlock();
-		return 0;
-	}
-	show_time(false);
-	if (g_info_window) {
-		game_unlock();
-		return interval;
-	}
-	game_move_ball();
-	game_process_board();
-	game_process_pool();
-	show_score();
-//	if ((pos = check_hiscores(board_score()))) {
-//		show_hiscores(pos);
-//	}
-	game_display_pool();
-//		pthread_mutex_unlock(&game_lock);
-//		return interval;
-//	}
-	if (!game_display_board()) { /* nothing todo */
-		board_logic();
-		if (!board_running() && !update_needed && !game_over) {
-			game_message("Game Over!", (game_over = true));
-			if (check_hiscores(board_score())) {
-				snd_play(SND_HISCORE, 1);
-				show_hiscores();
-			} else {
-				snd_play(SND_GAMEOVER, 1);
+	if (running) {
+		show_time(false);
+		if (!g_info_window) {
+			game_move_ball();
+			game_process_board();
+			game_process_pool();
+			show_score();
+			game_display_pool();
+			if (!game_display_board()) { /* nothing todo */
+				board_logic();
+				if (!board_running() && !update_needed && !game_over) {
+					game_message("Game Over!", (game_over = true));
+					if (check_hiscores(board_score())) {
+						snd_play(SND_HISCORE, 1);
+						show_hiscores();
+					} else {
+						snd_play(SND_GAMEOVER, 1);
+					}
+					remove(SAVE_PATH);
+				}
 			}
-			remove(SAVE_PATH);
+			update_all();
 		}
-	}
-	update_all();
+	} else
+		interval = 0;
 	game_unlock();
 	return interval;
 }
@@ -1528,9 +1484,7 @@ int main(int argc, char **argv) {
 	
 	game_loadprefs(PREFS_PATH);
 	
-	if (g_snd_disabled) {
-		g_volume = 0;
-	} else
+	if (!g_snd_disabled)
 		snd_volume(g_volume);
 	if (g_music && !snd_music_start()) {
 		g_music = false;
