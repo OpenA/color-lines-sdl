@@ -1,4 +1,4 @@
-VERSION  := 0.8
+VERSION  := 0.9
 VERTITLE := color-lines-$(VERSION)
 
 OS       := $(shell uname | sed "y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/")

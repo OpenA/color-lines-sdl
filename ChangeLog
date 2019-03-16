@@ -1,3 +1,10 @@
+color-lines (0.9) unstable; urgency=low
+
+  * rebuild volume slider algorithm
+  * improve event handler
+
+ -- OpenA <https://github.com/OpenA/color-lines-sdl>  Sat, 16 Mar 2019 21:19:00 -0400
+
 color-lines (0.8) unstable; urgency=low
 
   * migrate to SDL2

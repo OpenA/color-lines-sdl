@@ -1,4 +1,4 @@
-VERSION  := 0.8
+VERSION  := 0.9
 VERTITLE := color-lines-$(VERSION)
 
 CFLAGS   := -Wall -O2 $(shell sdl2-config --cflags) -DMACOS -DCL_VER=\"$(VERSION)\"
