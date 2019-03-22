@@ -1,4 +1,3 @@
-#include <stdbool.h>
 #ifndef __BOARD_H
 #define __BOARD_H
 
@@ -32,8 +31,7 @@ extern void board_display(void); /* calls gfx_display_board */
 extern void board_fill_pool(void); /* calls gfx_fill_pool */
 extern bool board_select(int x, int y); /* calls gfx_select_ball, gfx_move, gfx_clean_cell */
 extern cell_t board_cell(int x, int y);
-extern void board_lock(void);
-extern void board_unlock(void);
+extern void board_time_update(int sec);
 extern bool board_selected(int *x, int *y);
 extern bool board_moved(int *x, int *y);
 extern void board_logic(void);
@@ -41,6 +39,7 @@ extern bool board_follow_path(int x, int y, int *ox, int *oy, int id);
 extern bool board_path(int x, int y);
 extern void board_clear_path(int x, int y);
 extern cell_t pool_cell(int x);
+extern int board_time(void);
 extern int board_score(void);
 extern int board_score_mul(void);
 extern bool board_running(void);

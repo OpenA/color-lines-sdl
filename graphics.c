@@ -1,5 +1,6 @@
-#include <SDL.h>
+#include "main.h"
 #include <SDL_image.h>
+#include <SDL_ttf.h>
 #include "graphics.h"
 #include "math.h"
 
@@ -7,7 +8,7 @@ static SDL_Window *sdlWindow;
 static SDL_Renderer *sdlRenderer;
 static SDL_Texture *sdlTexture;
 static SDL_Surface *screen;
-static char GFX_DIR[ 1024 ];
+static char GFX_DIR[ PATH_MAX ];
 
 void gfx_free_image(img_t p)
 {
@@ -77,7 +78,7 @@ img_t gfx_load_image(char *filename, bool transparent)
 {
 	SDL_Surface *img, *img2;
 	
-	char filepath[1024];
+	char filepath[ PATH_MAX ];
 	
 	strcpy(filepath, GFX_DIR);
 	strcat(filepath, filename);
@@ -136,7 +137,7 @@ static int fnt_calc_idx(fnt_t f, char c)
 	return idx;
 }
 
-int gfx_draw_char(fnt_t f, const char c, int x, int y)
+int gfx_draw_char(fnt_t f, const char c, int x, int y, float scale)
 {
 	_font_t *fnt = (_font_t *)f;
 	int idx, from;
@@ -164,7 +165,21 @@ int gfx_draw_char(fnt_t f, const char c, int x, int y)
 	dest.w = fnt->widths[idx];
 	dest.h = fnt->h;
 	
-	SDL_BlitSurface(pixbuf, &src, screen, &dest);
+	if (scale && scale != 1) {
+		SDL_Rect scl;
+		scl.x = 0; scl.w = dest.w = (int)(dest.w * scale);
+		scl.y = 0; scl.h = dest.h = (int)(dest.h * scale);
+		SDL_Surface *scaled = SDL_CreateRGBSurface(
+			pixbuf->flags, scl.w, scl.h, 32,
+			pixbuf->format->Rmask,
+			pixbuf->format->Gmask,
+			pixbuf->format->Bmask,
+			pixbuf->format->Amask);
+		SDL_BlitScaled(pixbuf, &src, scaled, &scl);
+		SDL_BlitSurface(scaled, &scl, screen, &dest);
+		//fprintf(stderr, "scaled: %f\n", scale);
+	} else
+		SDL_BlitSurface(pixbuf, &src, screen, &dest);
 	return dest.w;
 }
 
@@ -187,11 +202,11 @@ int gfx_chars_width(fnt_t f, const char *str)
 	return x;
 }
 
-int gfx_draw_chars(fnt_t f, const char *str, int x, int y)
+int gfx_draw_chars(fnt_t f, const char *str, int x, int y, float scale)
 {
 	int i, x_orig = x;
 	for (i = 0; i < strlen(str); i++ ) {
-		x += gfx_draw_char(f, str[i], x, y);
+		x += gfx_draw_char(f, str[i], x, y, scale);
 	}
 	return x - x_orig;
 }
@@ -200,6 +215,43 @@ int gfx_font_height(fnt_t f)
 {
 	_font_t	*font = (_font_t *)f;
 	return font->h;
+}
+
+img_t gfx_load_ttf_font(char *ttf, char *text, int px)
+{
+	char path[ PATH_MAX ];
+	
+	strcpy(path, GFX_DIR);
+	strcat(path, ttf);
+	
+	TTF_Font* font  = TTF_OpenFont(path, px);
+	SDL_Color color = { 0x00, 0x00, 0x00 };
+	SDL_Surface* mask;
+	
+	if(!font || !(mask = TTF_RenderText_Solid(font, text, color))) {
+		fprintf(stderr, "can't draw text \'%s\' with %s", text, ttf);
+		return NULL;
+	}
+	color.r = 0xB8; color.g = 0x7B;
+	
+	SDL_Rect dest, src;
+	SDL_Surface* fill = TTF_RenderText_Solid(font, text, color);
+	
+	SDL_Surface* pixbuf = SDL_CreateRGBSurfaceWithFormat(0,
+		(src.w = dest.w = fill->w) + 1,
+		(src.h = dest.h = fill->h) + 1,
+		8, SDL_PIXELFORMAT_RGBA8888
+	);
+	src.x = 0; dest.x = 1;
+	src.y = 0; dest.y = 1;
+	
+	SDL_BlitSurface(mask, &src, pixbuf, &dest);
+	SDL_BlitSurface(fill, &src, pixbuf, &src);
+	SDL_FreeSurface(mask);
+	SDL_FreeSurface(fill);
+	TTF_CloseFont(font);
+	
+	return pixbuf;
 }
 
 fnt_t gfx_load_font(char *fname, int w)
@@ -321,33 +373,37 @@ bool gfx_init(char *g_datadir)
 		return true;
 	}
 	
+	if (TTF_Init()) {
+		fprintf(stderr, "Couldn't initialize TTF: %s\n", TTF_GetError());
+	}
+	
 	strcpy(GFX_DIR, g_datadir);
 	strcat(GFX_DIR, "gfx/");
 	
-	if (SDL_CreateWindowAndRenderer(800, 480,
+	if (SDL_CreateWindowAndRenderer(SCREEN_W, SCREEN_H,
 #ifdef MAEMO
 		SDL_WINDOW_FULLSCREEN_DESKTOP
 #else
 		SDL_WINDOW_RESIZABLE
 #endif
 	, &sdlWindow, &sdlRenderer)) {
-		fprintf(stderr, "Unable to set 800x480 video: %s\n", SDL_GetError());
+		fprintf(stderr, "Unable to set %dx%d video: %s\n", SCREEN_W, SCREEN_H, SDL_GetError());
 		return true;
 	}
 	
 	SDL_SetWindowTitle( sdlWindow, "Color Lines" );
 	
 	SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY , "linear" );
-	SDL_RenderSetLogicalSize( sdlRenderer, 800, 480 );
+	SDL_RenderSetLogicalSize( sdlRenderer, SCREEN_W, SCREEN_H );
 	
-	sdlTexture = SDL_CreateTexture( sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 800, 480 );
-	screen     = SDL_CreateRGBSurface( 0, 800, 480, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000 );
+	sdlTexture = SDL_CreateTexture( sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H );
+	screen     = SDL_CreateRGBSurface( 0, SCREEN_W, SCREEN_H, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000 );
 	
 #ifdef MAEMO
 	SDL_ShowCursor(SDL_DISABLE);
 #else
 	SDL_Surface * icon;
-	char ipath[ 1024 ];
+	char ipath[ PATH_MAX ];
 	
 	strcpy(ipath, g_datadir);
 	strcat(ipath, "gfx/joker.png");
@@ -356,7 +412,7 @@ bool gfx_init(char *g_datadir)
 		SDL_SetWindowIcon( sdlWindow, icon );
 	}
 #endif
-	gfx_clear(0, 0, 800, 480);
+	gfx_clear(0, 0, SCREEN_W, SCREEN_H);
 	return false;
 }
 
@@ -369,9 +425,7 @@ void gfx_update(void) {
 
 void gfx_done(void)
 {
-#ifndef MAEMO
-//	SDL_FreeSurface(icon);
-#endif	
+	TTF_Quit();
 	SDL_Quit();
 }
 

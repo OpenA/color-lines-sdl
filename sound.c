@@ -1,91 +1,149 @@
-#include <SDL.h>
+#include "main.h"
 #include <SDL_mixer.h>
 #include "sound.h"
 
-/* Mix_Chunk is like Mix_Music, only it's for ordinary sounds. */
 #define EFFECTS_NR 7
+#define MUS_HEAD 127
 
-Mix_Chunk *effects[EFFECTS_NR] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-      int channels[EFFECTS_NR] = { -1, -1, -1, -1, -1, -1, -1};
+static struct {
+	Mix_Music *soundtrack;
+	Mix_Chunk *effects[ EFFECTS_NR ]; /* Mix_Chunk is like Mix_Music, only it's for ordinary sounds. */
+	short current;
+	bool disabled;
+	char dir[ PATH_MAX ];
+	char title[ MUS_HEAD ];
+	int channels[ EFFECTS_NR ];
+} SND = {
+	.effects  = { NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	.channels = { -1, -1, -1, -1, -1, -1, -1}
+};
 
-Mix_Music *Music = NULL;
-static bool SND_DISABLED = false;
-static char SND_DIR[ 1024 ];
+static const unsigned char trackList[ TRACKS_COUNT ][32] = {
+	"4stonewalls.it",
+	"allnightalone.mod",
+	"aloneinaworld.xm",
+	"boondocks.xm",
+	"crossfire.xm",
+	"crystalhammer.mod",
+	"flying.it",
+	"hidninja.xm",
+	"hipchip2.xm",
+	"ihaveakey.xm",
+	"insideoldpc.mod",
+	"japanese.xm",
+	"kilobyte.xm",
+	"meeting.xm",
+	"melancolie.s3m",
+	"modernsurf.xm",
+	"monastery.xm",
+	"offencyt.xm",
+	"ringsofmedusa.xm",
+	"rusinahumppa.mod",
+	"satellite.s3m",
+	"skogensdjur.xm",
+	"someone.mod",
+	"tikob_ii.mod",
+	"trackerode.xm",
+	"xmas.xm"
+};
 
-bool snd_init(char *g_datadir)
+bool snd_init(const char *game_data_dir)
 {
 	if (Mix_OpenAudio(44100, AUDIO_S16, 2, 4096)) {
 		fprintf(stderr, "Unable to open audio!\n");
 		return true;
 	}
-	strcpy(SND_DIR, g_datadir);
-	strcat(SND_DIR, "sounds/");
+	strcpy(SND.dir, game_data_dir);
+	strcat(SND.dir, "sounds/");
 	
-	char click   [ 1024 ]; strcpy( click   , SND_DIR ); strcat( click   , "click.wav"    );
-	char bonus   [ 1024 ]; strcpy( bonus   , SND_DIR ); strcat( bonus   , "bonus.wav"    );
-	char hiscore [ 1024 ]; strcpy( hiscore , SND_DIR ); strcat( hiscore , "hiscore.wav"  );
-	char gameover[ 1024 ]; strcpy( gameover, SND_DIR ); strcat( gameover, "gameover.wav" );
-	char boom    [ 1024 ]; strcpy( boom    , SND_DIR ); strcat( boom    , "boom.wav"     );
-	char fadeout [ 1024 ]; strcpy( fadeout , SND_DIR ); strcat( fadeout , "fadeout.wav"  );
-	char paint   [ 1024 ]; strcpy( paint   , SND_DIR ); strcat( paint   , "paint.wav"    );
+	char click   [ PATH_MAX ]; strcpy( click   , SND.dir ); strcat( click   , "click.wav"    );
+	char bonus   [ PATH_MAX ]; strcpy( bonus   , SND.dir ); strcat( bonus   , "bonus.wav"    );
+	char hiscore [ PATH_MAX ]; strcpy( hiscore , SND.dir ); strcat( hiscore , "hiscore.wav"  );
+	char gameover[ PATH_MAX ]; strcpy( gameover, SND.dir ); strcat( gameover, "gameover.wav" );
+	char boom    [ PATH_MAX ]; strcpy( boom    , SND.dir ); strcat( boom    , "boom.wav"     );
+	char fadeout [ PATH_MAX ]; strcpy( fadeout , SND.dir ); strcat( fadeout , "fadeout.wav"  );
+	char paint   [ PATH_MAX ]; strcpy( paint   , SND.dir ); strcat( paint   , "paint.wav"    );
 	
-	effects[SND_CLICK]    = Mix_LoadWAV( click    );
-	effects[SND_BONUS]    = Mix_LoadWAV( bonus    );
-	effects[SND_HISCORE]  = Mix_LoadWAV( hiscore  );
-	effects[SND_GAMEOVER] = Mix_LoadWAV( gameover );
-	effects[SND_BOOM]     = Mix_LoadWAV( boom     );
-	effects[SND_FADEOUT]  = Mix_LoadWAV( fadeout  );
-	effects[SND_PAINT]    = Mix_LoadWAV( paint    );
-//	Mix_Volume(-1, 127);
+	SND.effects[SND_CLICK]    = Mix_LoadWAV( click    );
+	SND.effects[SND_BONUS]    = Mix_LoadWAV( bonus    );
+	SND.effects[SND_HISCORE]  = Mix_LoadWAV( hiscore  );
+	SND.effects[SND_GAMEOVER] = Mix_LoadWAV( gameover );
+	SND.effects[SND_BOOM]     = Mix_LoadWAV( boom     );
+	SND.effects[SND_FADEOUT]  = Mix_LoadWAV( fadeout  );
+	SND.effects[SND_PAINT]    = Mix_LoadWAV( paint    );
+	
 	return false;
 }
 
-void snd_volume(int vol)
+void snd_volume(short vol)
 {
 	int vsnd   =  vol / 2;
-	int vmusic = (vol - vol / 8) / 2;
+	int vmusic = (vol - vol / 5.5) / 2;
+	//fprintf(stderr, " Volume { sounds: %d, music: %d }\n", vsnd, vmusic);
 	
 	Mix_Volume(-1, vsnd);
 	Mix_VolumeMusic(vmusic);
 	
-//	for (int i = 0 ; i < EFFECTS_NR && effects[i]; i++)
-//		Mix_VolumeChunk(effects[i], vsnd);
-	
-	SND_DISABLED = !vsnd;
+	SND.disabled = !vsnd;
 }
 
-bool snd_music_start(void)
+void snd_music_start(short num, char *name)
 {
-	if (Music) {
-		if (Mix_PausedMusic())
-			Mix_ResumeMusic();
-		return true;
+	if (SND.soundtrack) {
+		if (SND.current == num) {
+			Mix_PausedMusic() ? Mix_ResumeMusic() : Mix_PlayMusic(SND.soundtrack, 0);
+			return;
+		}
+		Mix_HookMusicFinished(NULL);
+		Mix_HaltMusic();
+		Mix_FreeMusic(SND.soundtrack);
 	}
-	char track[1024];
-	strcpy(track, SND_DIR);
-	strcat(track, "hipchip2.xm");
-	Mix_VolumeMusic(Mix_VolumeMusic(-1)); // hack?
-	return !Mix_PlayMusic((Music = Mix_LoadMUS(track)), -1);
+	char track[ PATH_MAX ],
+	      head[ MUS_HEAD ];
+	
+	strcpy(track, SND.dir);
+	strcat(track, (char*)trackList[ (SND.current = num) ]);
+	
+	Mix_VolumeMusic(Mix_VolumeMusic(-1)); // -1 does not set the volume, but does return the current volume setting.
+	SND.soundtrack = Mix_LoadMUS(track);
+	FILE * file = fopen(track , "rb");
+	
+	if (file && !Mix_PlayMusic(SND.soundtrack, 0)) {
+		fread(head, sizeof(head), 1, file);
+		int i = 0, k = !strncmp(head, "Extended", 8) ? 17 : !strncmp(head, "IMPM", 4) ? 4 : 0;
+		for (; k < strlen(head); i++, k++) {
+			if (head[k] == 0x1A || (name[i] = SND.title[i] = head[k]) == '\0')
+				break;
+		}
+		fclose(file);
+		for (; i < strlen(name); i++)
+			SND.title[i] = name[i] = '\0';
+		for (; i < strlen(SND.title); i++)
+			SND.title[i] = '\0';
+		Mix_HookMusicFinished(track_switch);
+	}
 }
 
 void snd_music_stop(void)
 {
-	if (Music && !Mix_PausedMusic())
+	if (SND.soundtrack && !Mix_PausedMusic()) {
 		Mix_PauseMusic();
+	}
 }
 
 void snd_done(void)
 {
 	for (int i = 0; i < EFFECTS_NR; i++)
-		Mix_FreeChunk(effects[i]);
+		Mix_FreeChunk(SND.effects[i]);
+	Mix_HookMusicFinished(NULL);
 	Mix_HaltMusic();
-	Mix_FreeMusic(Music);
-	Music = NULL;
+	Mix_FreeMusic(SND.soundtrack);
+	SND.soundtrack = NULL;
 	Mix_CloseAudio();
 }
 
 void snd_play(int num, int cnt)
 {
-	if (!SND_DISABLED && num < EFFECTS_NR)
-		channels[num] = Mix_PlayChannel(-1, effects[num], cnt - 1);
+	if (!SND.disabled && num < EFFECTS_NR)
+		SND.channels[num] = Mix_PlayChannel(-1, SND.effects[num], cnt - 1);
 }

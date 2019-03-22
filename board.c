@@ -1,13 +1,7 @@
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <SDL.h>
-#include <SDL_thread.h>
-#include <time.h>
+#include "main.h"
 #include "board.h"
 
 #define FL_PATH 0x80
-#define max(a,b) (((a)>(b))?(a):(b))
 #define BONUS_PCNT 5
 
 enum {
@@ -40,7 +34,7 @@ typedef struct {
 	struct {
 		int x;
 		int y;
-	} cells[max(BOARD_W,BOARD_H)];
+	} cells[_max(BOARD_W,BOARD_H)];
 } flush_t;
 
 flush_t	*flushes[BOARD_W * BOARD_H];

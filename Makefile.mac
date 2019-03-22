@@ -1,8 +1,8 @@
-VERSION  := 0.9
+VERSION  := 1.0
 VERTITLE := color-lines-$(VERSION)
 
 CFLAGS   := -Wall -O2 $(shell sdl2-config --cflags) -DMACOS -DCL_VER=\"$(VERSION)\"
-LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer
+LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer -lSDL2_ttf
 
 SRC      := board.c graphics.c main.c sound.c
 OBJ      := $(patsubst %.c, %.o, $(SRC))

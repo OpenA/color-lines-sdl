@@ -1,4 +1,3 @@
-#include <stdbool.h>
 #ifndef __SOUND_H__
 #define __SOUND_H__
 
@@ -9,11 +8,12 @@
 #define SND_BOOM     4
 #define SND_FADEOUT  5
 #define SND_PAINT    6
+#define TRACKS_COUNT 26
 
-extern bool snd_init(char *g_datadir);
+extern bool snd_init(const char *game_data_dir);
 extern void snd_done(void);
 extern void snd_play(int sample, int cnt);
-extern bool snd_music_start(void);
+extern void snd_music_start(short num, char *name);
 extern void snd_music_stop(void);
-extern void snd_volume(int vol);
+extern void snd_volume(short vol);
 #endif

@@ -1,27 +1,7 @@
+#include "main.h"
 #include "board.h"
 #include "graphics.h"
 #include "sound.h"
-#include <stdio.h>
-#include <time.h>
-#include <SDL.h>
-#include <SDL_thread.h>
-
-#ifdef WINDOWS
-	#include <windows.h>
-	#include <shlobj.h>
-	#define PATH_MAX MAX_PATH
-#else
-	#include <limits.h>
-	#include <unistd.h>
-	#include <pwd.h>
-	
-	#ifdef MACOS
-		#include <mach-o/dyld.h>
-		//#include <sys/syslimits.h>
-	#endif
-#endif
-
-static char GAME_DATA_DIR [ PATH_MAX ];
 
 #ifdef MAEMO
 	#define SIZE_STEPS  8 // 16
@@ -35,12 +15,6 @@ static char GAME_DATA_DIR [ PATH_MAX ];
 	static char PREFS_PATH  [ PATH_MAX ];
 #endif
 
-#define _max(a,b) (((a)>(b))?(a):(b))   // developer: 'max' was a global define, so it was replaced to '_max'
-#define _min(a,b) (((a)<(b))?(a):(b))   // developer: 'min' was a global define, so it was replaced to '_min'
-
-#define SCREEN_W    800
-#define SCREEN_H    480
-
 #define POOL_SPACE  8
 #define FONT_WIDTH  24
 #define SCORES_X    60
@@ -50,7 +24,7 @@ static char GAME_DATA_DIR [ PATH_MAX ];
 #define SCORE_Y     175
 #define SCORE_W    (BOARD_X - 23)
 #define ALPHA_STEPS 16
-#define BALLS_NR    7
+#define BALLS_NR   (COLORS_NR + BONUSES_NR)
 #define JUMP_STEPS  8
 #define JUMP_MAX    0.8
 #define BALL_STEP   25
@@ -61,35 +35,52 @@ static char GAME_DATA_DIR [ PATH_MAX ];
 #define BOARD_Y      (15)
 #define BOARD_WIDTH  (BOARD_W * TILE_WIDTH)
 #define BOARD_HEIGHT (BOARD_H * TILE_HEIGHT)
-#define SPECIAL_BALLS 4
-#define BALL_JOKER    8
-#define BALL_BOMB     9
-#define BALL_BRUSH    10
+#define HISCORES_NR	  5
+#define BONUS_BLINKS  4
+#define BONUS_TIMER  40
 
-static bool g_snd_disabled = false;
-static bool g_info_window  = false;
-static bool update_needed  = false;
-static bool g_music        = true;
-static bool g_prefs        = false;
-static int  g_volume       = 256;
+#define BALL_JOKER  8
+#define BALL_BOMB   9
+#define BALL_BRUSH 10
+#define BALL_W     40
+#define BALL_H     40
 
-static int restart_x;
-static int restart_y;
-static int restart_w;
-static int restart_h;
+static struct __SET__ {
+	short volume;
+	char music;
+	bool loop;
+	int lastTime;
+} Settings  = {
+	.volume = 256,
+	.music  = 0,
+	.loop   = false
+};
 
-static int music_w;
-static int music_h;
-static int music_x;
-static int music_y;
+static struct __STAT__ {
+	bool running, game_over, update_needed, store_prefs;
+} status = {
+	.store_prefs   = false,
+	.update_needed = false,
+	.game_over     = false,
+	.running       = true
+};
 
-static int info_w;
-static int info_h;
-static int info_x;
-static int info_y;
+typedef struct __ELS__ {
+	char name[ 24 ];
+	int x, y, w, h;
+	img_t on, off;
+	float temp;
+	bool touch, hook;
+} elemen_t;
 
-static int vol_w;
-static int vol_h;
+static elemen_t Restart = { .name = "Restart" };
+static elemen_t Board;
+static elemen_t Track   = { .temp = 14 };
+static elemen_t Timer   = { .name = "00:00", .temp = 0.5 };
+static elemen_t Music   = { .name = "music" };
+static elemen_t Loop    = { .name = "loop" };
+static elemen_t Info    = { .name = "info" };
+static elemen_t Vol     = { .name = "vol" };
 
 SDL_mutex *game_mutex;
 
@@ -103,17 +94,17 @@ void game_unlock(void)
 	SDL_mutexV(game_mutex);
 }
 
+static int FONT_HEIGHT;
 int   moving_nr = 0;
 fnt_t font;
 #ifndef MAEMO
 img_t pb_logo = NULL;
 #endif
 img_t bg_saved = NULL;
-img_t balls[BALLS_NR + SPECIAL_BALLS][ALPHA_STEPS];
-img_t resized_balls[BALLS_NR + SPECIAL_BALLS][SIZE_STEPS];
-img_t jumping_balls[BALLS_NR + SPECIAL_BALLS][JUMP_STEPS];
+img_t balls[BALLS_NR][ALPHA_STEPS];
+img_t resized_balls[BALLS_NR][SIZE_STEPS];
+img_t jumping_balls[BALLS_NR][JUMP_STEPS];
 img_t cell, bg;
-img_t music_on, music_off, info_on, info_off, vol_empty, vol_full;
 
 bool alpha = true;
 
@@ -121,27 +112,97 @@ bool alpha = true;
 	alpha = false;
 #endif
 
-static void show_time(bool force)
+static bool _Is_onElement(elemen_t target, int x, int y)
 {
-#ifdef SHOW_CLOCK
-	static int last_w = 0;
-	static int last_minute = -1;
-	time_t t = time(NULL);
-	struct tm *tm = localtime(&t);
-	if (tm && (force || tm->tm_min != last_minute)) {
-		char buf[64];
-		sprintf(buf, "%02d:%02d", tm->tm_hour, tm->tm_min);
-		int w = gfx_chars_width(font, buf);
-		if (last_w) {
-			gfx_draw_bg(bg, BOARD_X - POOL_SPACE - last_w, SCREEN_H - gfx_font_height(font), last_w, gfx_font_height(font));
-		}
-		gfx_draw_chars(font, buf, BOARD_X - POOL_SPACE - w, SCREEN_H - gfx_font_height(font));
-		gfx_update();
-		last_w = w;
-		last_minute = tm->tm_min;
-//		fprintf(stderr,"Times going\n");
+	return !(x < target.x || y < target.y || x >= target.x + target.w || y >= target.y + target.h);
+}
+
+static bool load_Img_for(elemen_t *target)
+{
+	char ion[ 24 ], ioff[ 24 ];
+	
+	bool loaded = !strcmp(target->name, "vol");
+	
+	strcpy(ion,  target->name); strcat(ion, (loaded ? "_full.png"  : "_on.png" ));
+	strcpy(ioff, target->name); strcat(ioff,(loaded ? "_empty.png" : "_off.png"));
+	
+	target->on  = gfx_load_image(ion,  true);
+	target->off = gfx_load_image(ioff, true);
+	
+	if ((loaded = target->on && target->off)) {
+		target->w = gfx_img_w(target->off);
+		target->h = gfx_img_h(target->off);
 	}
-#endif
+	return !loaded;
+}
+
+static void draw_Button_for(elemen_t *target, bool enabled)
+{
+	gfx_draw_bg(bg, target->x, target->y, target->w, target->h);
+	gfx_draw((enabled ? target->on : target->off), target->x, target->y);
+	gfx_update();
+}
+
+static void free_Img_for(elemen_t *target)
+{
+	gfx_free_image(target->on);
+	gfx_free_image(target->off);
+}
+
+static void draw_Volume_bar(void)
+{
+	game_lock();
+	int bar = Settings.volume ? Settings.volume * Vol.w / 256 : 0;
+	game_unlock();
+	gfx_draw_bg(bg, Vol.x, Vol.y, Vol.w, Vol.h);
+	gfx_draw(Vol.off, Vol.x, Vol.y);
+	gfx_draw_wh(Vol.on, Vol.x, Vol.y, bar, Vol.h);
+	gfx_update();
+}
+
+static void draw_Track_title(void)
+{
+	gfx_draw_bg(bg, Track.x, Track.y, Track.w, Track.h);
+	Track.on = gfx_load_ttf_font("manaspc.ttf", Track.name, Track.temp);
+	Track.w  = gfx_img_w(Track.on);
+	Track.h  = gfx_img_h(Track.on);
+	gfx_draw_wh(Track.on, Track.x, Track.y, Track.w, Track.h);
+	gfx_update();
+}
+
+static Uint32 draw_Timer_digit(Uint32 interval, void *_null)
+{
+	Settings.lastTime++;
+	
+	sprintf(Timer.name, "%02d:%02d", (int)(Settings.lastTime / 60), Settings.lastTime % 60);
+	gfx_draw_bg(bg, Timer.x, Timer.y, Timer.w, Timer.h);
+	
+	Timer.w = gfx_chars_width(font, Timer.name) * Timer.temp;
+	Timer.x = SCREEN_W - Timer.w;
+	
+	gfx_draw_chars(font, Timer.name, Timer.x, Timer.y, Timer.temp);
+	gfx_update();
+	
+	return interval;
+}
+
+static void go_GameTimer(bool start)
+{
+	static SDL_TimerID gameTimerId;
+	
+	if (start)
+		gameTimerId = SDL_AddTimer(1000, &draw_Timer_digit, NULL);
+	else
+		SDL_RemoveTimer( gameTimerId );
+}
+
+static void start_GameTimer()
+{
+	go_GameTimer( true );
+}
+static void stop_GameTimer()
+{
+	go_GameTimer( false );
 }
 
 static int get_word(const char *str, char *word)
@@ -160,8 +221,7 @@ static int get_word(const char *str, char *word)
 	*word = 0;
 	return parsed;
 }
-#define BALL_W 40
-#define BALL_H 40
+
 static struct _gfx_word {
 	const char *name;
 	img_t	*img;
@@ -182,7 +242,6 @@ static struct _gfx_word {
 #endif	
 	{ NULL },
 };
-static void show_info_status(void);
 
 static img_t gfx_word(const char *word)
 {
@@ -204,7 +263,7 @@ static const char *game_print(const char *str)
 		ptr++;
 	while (*ptr) {
 		int w = 0;
-		int h = gfx_font_height(font);
+		int h = FONT_HEIGHT;
 		while (w < BOARD_WIDTH) {
 			char word[128];
 			int rc;
@@ -225,7 +284,7 @@ static const char *game_print(const char *str)
 				h = _max(h, gfx_img_h(img));
 			} else {	
 				strcat(word, " ");	
-				gfx_draw_chars(font, word, x, y);
+				gfx_draw_chars(font, word, x, y, 0);
 				w += gfx_chars_width(font, " ");
 				x += gfx_chars_width(font, word);
 			}
@@ -239,7 +298,7 @@ static const char *game_print(const char *str)
 		x  = BOARD_X;
 		y += h;
 		if (y >= BOARD_Y + BOARD_HEIGHT - 2*h) {
-			gfx_draw_chars(font, "MORE", BOARD_X, BOARD_Y + BOARD_HEIGHT - h);
+			gfx_draw_chars(font, "MORE", BOARD_X, BOARD_Y + BOARD_HEIGHT - h, 0);
 			break;
 		}
 	}
@@ -290,11 +349,9 @@ static void show_info_window(void)
 	} else {
 		gfx_draw_bg(bg, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y, 
 				BOARD_WIDTH + TILE_WIDTH + POOL_SPACE, BOARD_HEIGHT);
-		show_time(true);
+		stop_GameTimer();
 		cur_text = game_print(cur_text);
-		gfx_update();
-		g_info_window = true;
-		show_info_status();
+		draw_Button_for(&Info, (Info.hook = true));
 	}
 	game_unlock();
 }
@@ -304,18 +361,14 @@ static void hide_info_window(void)
 	cur_text = last_text ?: info_text;
 	game_lock();
 	gfx_draw(bg_saved, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y);
-	show_time(true);
 	gfx_update();
 	bg_saved = 0;
 	gfx_free_image(bg_saved);
-	g_info_window = false;
-	show_info_status();
+	draw_Button_for(&Info, (Info.hook = false));
+	start_GameTimer();
 	game_unlock();
 }
 
-static bool running = true;
-
-#define HISCORES_NR	5
 static int game_hiscores[HISCORES_NR] = { 50, 40, 30, 20, 10 };
 
 enum {
@@ -356,14 +409,12 @@ static void show_score(void);
 static bool check_hiscores(int score);
 static void show_hiscores(void);
 static void game_message(const char *str, bool board);
-static void game_restart(void);
+static void game_restart(bool clean);
 static void game_loadhiscores(const char *path);
 static void game_savehiscores(const char *path);
 static void game_loadprefs(const char *path);
 static void game_saveprefs(const char *path);
 static int set_volume(int x);
-static void music_switch(int x, int y);
-static void show_music_status(void);
 
 static void enable_effect(int x, int y, int effect)
 {
@@ -492,17 +543,15 @@ int game_process_board(void)
 		snd_play(SND_FADEOUT, 1);
 	return rc;
 }
-int game_init(void)
+void game_init(void)
 {
-	int x, y;
 	memset(game_board, 0, sizeof(game_board));
 	memset(game_pool, 0, sizeof(game_pool));
-	for (y = 0; y < BOARD_H; y ++) {
-		for (x = 0; x < BOARD_W; x++) {
+	for (int y = 0; y < BOARD_H; y ++) {
+		for (int x = 0; x < BOARD_W; x++) {
 			game_board[x][y].draw_needed = 0;
 		}
 	}
-	return 0;
 }
 
 int game_display_board(void)
@@ -649,7 +698,7 @@ int game_display_pool(void)
 	for (x = 0; x < POOL_SIZE; x++) {
 		gfx_ball_t *b;
 		b = &game_pool[x];
-		if (!b->draw_needed)	
+		if (!b->draw_needed)
 			continue;
 		rc ++;	
 		switch (b->effect) {
@@ -712,7 +761,7 @@ static int load_balls(void)
 	img_t ball = gfx_load_image("ball.png", true);
 	if (!ball)
 		return -1;
-	for (int i = 1; i <= BALLS_NR + SPECIAL_BALLS; i++) {
+	for (int i = 1; i <= BALLS_NR; i++) {
 		img_t color, new, alph, sized, jumped;
 		if (i == ball_joker) {
 			color = NULL;
@@ -759,7 +808,7 @@ static int load_balls(void)
 
 void free_balls(void)
 {
-	for (int i = 0; i < BALLS_NR + SPECIAL_BALLS; i++) {
+	for (int i = 0; i < BALLS_NR; i++) {
 		for (int k = 0; k < ALPHA_STEPS; k++) {
 			gfx_free_image(balls[i][k]);
 		}
@@ -789,102 +838,45 @@ bool load_cell(void)
 	return !cell;
 }
 
-static bool load_music(void)
+static void music_switch(void)
 {
-	music_on  = gfx_load_image("music_on.png", true);
-	music_off = gfx_load_image("music_off.png", true);
-	bool stat = !music_on || !music_off;
-	if (!stat) {
-		music_w = gfx_img_w(music_on);
-		music_h = gfx_img_h(music_on);
-		music_x = 0;
-		music_y = SCREEN_H - music_h;
-	}
-	return stat;
-}
-
-static void music_switch(int x, int y)
-{
-	g_music ^= 1;
-	g_prefs  = true;
-	if (g_music)
-		g_music = snd_music_start();
-	if (!g_music)
+	if (Settings.music == -1) {
+		Settings.music = Music.temp;
+		snd_music_start(Settings.music, Track.name);
+		if (!Track.on)
+			draw_Track_title();
+	} else {
+		Music.temp = Settings.music;
+		Settings.music = -1;
 		snd_music_stop();
-	show_music_status();
-}
-
-static void free_music(void)
-{
-	gfx_free_image(music_on);
-	gfx_free_image(music_off);
-}
-
-static bool load_info(void)
-{
-	info_on   = gfx_load_image("info_on.png", true);
-	info_off  = gfx_load_image("info_off.png", true);
-	bool stat = !info_on || !info_off;
-	if (!stat) {
-		info_w = gfx_img_w(info_off);
-		info_h = gfx_img_h(info_off);
-		info_x = 0; //BOARD_X - info_w;
-		info_y = music_y - info_h;
 	}
-	return stat;
+	status.store_prefs = true;
+	draw_Button_for(&Music, (Settings.music > -1));
 }
 
-static bool load_volume(void)
+void track_switch(void)
 {
-	vol_empty = gfx_load_image("vol_empty.png", true);
-	vol_full  = gfx_load_image("vol_full.png", true);
-	bool stat = !vol_empty || !vol_full;
-	if (!stat) {
-		vol_w = gfx_img_w(vol_empty);
-		vol_h = gfx_img_h(vol_empty);
+	if ((status.store_prefs = Settings.music > -1)) {
+		Settings.music += Settings.loop >> Track.hook ^ 1;
+		if (Settings.music >= TRACKS_COUNT)
+			Settings.music = 0;
+		snd_music_start(Settings.music, Track.name);
+		gfx_free_image(Track.on);
+		draw_Track_title();
 	}
-	return stat;
-}
-
-static void free_volume(void)
-{
-	gfx_free_image(vol_empty);
-	gfx_free_image(vol_full);
-}
-
-static void show_volume()
-{
-	int x = music_w;
-	int y = SCREEN_H - music_h;
-	game_lock();
-	int w = g_volume * vol_w / 256;
-	game_unlock();
-	gfx_draw_bg(bg, x, y, vol_w, vol_h);
-	gfx_draw(vol_empty, x, y);
-	gfx_draw_wh(vol_full, x, y, (g_volume ? w : 0), gfx_img_h(vol_full));
-	gfx_update();
 }
 
 static int set_volume(int x)
 {
-	int disp = x < music_w ? 0 : x > (vol_w + music_w) ? vol_w : x - music_w;
-//	fprintf(stderr,"disp=%d x=%d\n", disp, x);
+	int disp = x < Music.w ? 0 : x > (Vol.w + Music.w) ? Vol.w : x - Music.w;
 	game_lock();
-	g_volume = (256 * disp) / vol_w;
+	Settings.volume = (256 * disp) / Vol.w;
 	game_unlock();
-	if (!g_snd_disabled) {
-		snd_volume(g_volume);
-		g_volume ? (g_music ? snd_music_start() : 1) : snd_music_stop();
-	}
-	show_volume();
-	g_prefs = true;
-	return disp + music_w;
-}
-
-static void free_info(void)
-{
-	gfx_free_image(info_on);
-	gfx_free_image(info_off);
+	if (!Music.hook)
+		snd_volume(Settings.volume);
+	draw_Volume_bar();
+	status.store_prefs = true;
+	return disp + Music.w;
 }
 
 bool load_bg(void)
@@ -915,7 +907,7 @@ void draw_cell(int x, int y)
 
 void update_cell(int x, int y)
 {
-	update_needed = true;
+	status.update_needed = true;
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
 #ifdef MAEMO
@@ -925,7 +917,7 @@ void update_cell(int x, int y)
 
 void update_cells(int x1, int y1, int x2, int y2)
 {
-	update_needed = true;
+	status.update_needed = true;
 	int nx1, ny1;
 	int nx2, ny2;
 	int tmp;
@@ -948,7 +940,7 @@ void update_cells(int x1, int y1, int x2, int y2)
 
 void mark_cells_dirty(int x1, int y1, int x2, int y2)
 {
-//	update_needed = true;
+//	status.update_needed = true;
 	int x, tmp;
 	if (x1 > x2) {
 		tmp = x2;
@@ -970,10 +962,10 @@ void mark_cells_dirty(int x1, int y1, int x2, int y2)
 void update_all(void)
 {
 #ifndef MAEMO
-	if (update_needed)
+	if (status.update_needed)
 		gfx_update();
 #endif
-	update_needed = false;
+	status.update_needed = false;
 }
 
 
@@ -1044,19 +1036,45 @@ static void draw_board(void)
 	}
 }
 
+static Uint32 refresh_screen(Uint32 interval, void *_null)
+{
+	if (status.running) {
+		if (!Info.hook) {
+			game_lock();
+			game_move_ball();
+			game_process_board();
+			game_process_pool();
+			show_score();
+			game_display_pool();
+			if (!game_display_board()) { /* nothing todo */
+				board_logic();
+				if (!board_running() && !status.update_needed && !status.game_over) {
+					stop_GameTimer();
+					game_message("Game Over!", (status.game_over = true));
+					if (check_hiscores(board_score())) {
+						snd_play(SND_HISCORE, 1);
+						show_hiscores();
+					} else {
+						snd_play(SND_GAMEOVER, 1);
+					}
+					remove(SAVE_PATH);
+				}
+			}
+			update_all();
+			game_unlock();
+		}
+	} else
+		interval = 0;
+	return interval;
+}
+
 static void game_loop() {
 	// Main loop
 	SDL_Event event;
 	
-	static struct {
-		int  vol_delta;
-		bool vol_slider, vol_hook;
-		bool cell_board;
-	} element;
+	SDL_AddTimer(20, &refresh_screen, NULL);
 	
-	element.vol_delta = g_volume * vol_w / 256 + music_w;
-	
-	while (running) {
+	while (status.running) {
 		if (SDL_WaitEvent(&event)) {
 			//fprintf(stderr,"event %d\n", event.type);
 			int x = event.button.x;
@@ -1070,58 +1088,62 @@ static void game_loop() {
 #endif
 				) {
 					game_lock();
-					running = false;
+					status.running = false;
 					game_unlock();
 				}
 			}
 			switch (event.type) {
 			case SDL_QUIT: // Quit the game
-				running = false;
+				status.running = false;
 				break;
 			case SDL_MOUSEMOTION:
-				element.vol_slider = !(x < music_w || y < SCREEN_H - music_h || x > music_w + vol_w || y > SCREEN_H);
-				element.cell_board = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
-				if (element.vol_hook) {
-					element.vol_delta = set_volume(x);
-				}
+				Board.touch = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
+				  Vol.touch = _Is_onElement(Vol, x, y);
+				if (Vol.hook)
+					Vol.temp = set_volume(x);
 				break;
 			case SDL_MOUSEBUTTONUP:
-				element.vol_hook = false;
+				Track.hook = Vol.hook = false;
 				break;
 			case SDL_MOUSEBUTTONDOWN: // Button pressed
-				if ((element.vol_hook = element.vol_slider)) {
-					element.vol_delta = set_volume(x);
-				}
-				else if (!(x < music_x || y < music_y || x >= music_x + music_w || y >= music_y + music_h)) {
-					music_switch(x, y);
-				}
-				else if (x >= restart_x && y >= restart_y && x < restart_x + restart_w && y < restart_y + restart_h) {
-					if (board_running() && check_hiscores(board_score())) {
-						snd_play(SND_HISCORE, 1);
-					} else if (board_running()) {
-						snd_play(SND_GAMEOVER, 1);
-					}
-					game_restart();
-				}
-				else if (x >= info_x && x < info_x + info_w && y >= info_y && y < info_y + info_h) {
-					g_info_window ? hide_info_window() : show_info_window();
-				}
-				else if (element.cell_board) {
-					if (g_info_window) {
+				if (Board.touch) {
+					if (Info.hook) {
 						show_info_window();
 					} else if (board_running()) {
 						board_select(
 							(x - BOARD_X) / TILE_WIDTH,
 							(y - BOARD_Y) / TILE_HEIGHT);
 					} else {
-						game_restart();
+						game_restart(true);
 					}
+				}
+				else if ((Vol.hook = Vol.touch)) {
+					Vol.temp = set_volume(x);
+				}
+				else if (_Is_onElement(Restart, x, y)) {
+					if (board_running()) {
+						snd_play(
+							check_hiscores(board_score()) ? SND_HISCORE : SND_GAMEOVER, 1);
+					}
+					game_restart(true);
+				}
+				else if (_Is_onElement(Music, x, y)) {
+					music_switch();
+				}
+				else if ((Track.hook = _Is_onElement(Track, x, y))) {
+					track_switch();
+				}
+				else if (_Is_onElement(Loop, x, y)) {
+					draw_Button_for(&Loop, (Settings.loop ^= 1));
+				}
+				else if (_Is_onElement(Info, x, y)) {
+					Info.hook ? hide_info_window() : show_info_window();
 				}
 				break;
 			case SDL_MOUSEWHEEL:
-				if (element.vol_slider) {
-					element.vol_delta = set_volume(element.vol_delta + (x ?: y));
-				} else if (element.cell_board && g_info_window) {
+				if (Vol.touch) {
+					Vol.temp = set_volume(Vol.temp + (x ?: y));
+				} else if (Board.touch && Info.hook) {
 					show_info_window();
 				}
 				break;
@@ -1130,7 +1152,7 @@ static void game_loop() {
 				case SDL_WINDOWEVENT_SIZE_CHANGED:
 				case SDL_WINDOWEVENT_MAXIMIZED:
 				case SDL_WINDOWEVENT_MINIMIZED:
-					update_needed = true;
+					status.update_needed = true;
 				}
 			}
 		}
@@ -1139,50 +1161,15 @@ static void game_loop() {
 		board_save(SAVE_PATH);
 }
 
-static bool game_over = false;
-static Uint32 refresh_screen(Uint32 interval, void *unused)
-{
-	game_lock();
-	if (running) {
-		show_time(false);
-		if (!g_info_window) {
-			game_move_ball();
-			game_process_board();
-			game_process_pool();
-			show_score();
-			game_display_pool();
-			if (!game_display_board()) { /* nothing todo */
-				board_logic();
-				if (!board_running() && !update_needed && !game_over) {
-					game_message("Game Over!", (game_over = true));
-					if (check_hiscores(board_score())) {
-						snd_play(SND_HISCORE, 1);
-						show_hiscores();
-					} else {
-						snd_play(SND_GAMEOVER, 1);
-					}
-					remove(SAVE_PATH);
-				}
-			}
-			update_all();
-		}
-	} else
-		interval = 0;
-	game_unlock();
-	return interval;
-}
-
 static int cur_score = -1;
 static int cur_mul = 0;
 static int score_x = SCORE_X + ((SCORE_W) / 2);
 static int score_w = 0;
-#define BONUS_TIMER 40 // 40
-#define BONUS_BLINKS 4 // 5
 
 static void show_score(void)
 {
 	char buff[64];
-	int w, h, x;
+	int w, x;
 	int new_score = board_score();
 	static int timer = 0;
 	
@@ -1190,7 +1177,6 @@ static void show_score(void)
 		cur_mul = board_score_mul();
 	
 	if (new_score > cur_score || cur_score == -1) {
-		h = gfx_font_height(font);
 		if ((board_score_mul() > cur_mul) && (board_score_mul() > 1) && !(timer % BONUS_BLINKS)) {
 			if (!timer) {
 				snd_play(SND_BONUS, 1);
@@ -1198,9 +1184,9 @@ static void show_score(void)
 			snprintf(buff, sizeof(buff), "Bonus x%d", board_score_mul());
 			w = gfx_chars_width(font, buff);
 			x = SCORE_X + ((SCORE_W - w) / 2);
-			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), h);
+			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), FONT_HEIGHT);
 			if ((timer / BONUS_BLINKS) & 1)
-				gfx_draw_chars(font, buff, x, SCORE_Y);
+				gfx_draw_chars(font, buff, x, SCORE_Y, 0);
 			gfx_update();
 			score_x = x;
 			score_w = w;
@@ -1213,8 +1199,8 @@ static void show_score(void)
 			}
 			w = gfx_chars_width(font, buff);
 			x = SCORE_X + ((SCORE_W - w) / 2);
-			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), h);
-			gfx_draw_chars(font, buff, x, SCORE_Y);
+			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), FONT_HEIGHT);
+			gfx_draw_chars(font, buff, x, SCORE_Y, 0);
 			gfx_update();
 			score_x = x;
 			score_w = w;
@@ -1229,49 +1215,43 @@ static void show_score(void)
 
 static void game_savehiscores(const char *path)
 {
-	FILE *f = fopen(path, "w");
-	if (f) {
+	FILE * file = fopen(SCORES_PATH, "w");
+	if (file != NULL) {
 		for (int i = 0; i < HISCORES_NR; i++) {
-			if (fwrite(&game_hiscores[i], sizeof(game_hiscores[i]), 1, f) != 1)
+			if (fwrite(&game_hiscores[i], sizeof(game_hiscores[i]), 1, file) != 1)
 				break;
 		}
-		fclose(f);
+		fclose(file);
 	}
 }
 
 static void game_loadhiscores(const char *path)
 {
-	FILE *f = fopen(path, "r");
-	if (f) {
+	FILE * file = fopen(SCORES_PATH, "r");
+	if (file != NULL) {
 		for (int i = 0; i < HISCORES_NR; i++) {
-			if (fread(&game_hiscores[i], sizeof(game_hiscores[i]), 1, f) != 1)
+			if (fread(&game_hiscores[i], sizeof(game_hiscores[i]), 1, file) != 1)
 				break;
 		}
-		fclose(f);
+		fclose(file);
 	}
 }
 
 static void game_loadprefs(const char *path)
 {
-	FILE *f = fopen(path, "r");
-	if (f) {
-		if (
-			fread(&g_music , sizeof(g_music) , 1, f) &&
-			fread(&g_volume, sizeof(g_volume), 1, f) &&
-		   (g_volume > 256 || g_volume < 0)
-		)
-			g_volume = 256;
-		fclose(f);
+	FILE * file = fopen(PREFS_PATH, "rb");
+	if (file != NULL) {
+		fread(&Settings, sizeof(struct __SET__), 1, file);
+		fclose(file);
 	}
 }
 
 static void game_saveprefs(const char *path)
 {
-	FILE *f = fopen(path, "w");
-	if (f) {
-		fwrite(&g_music , sizeof(g_music) , 1, f);
-		fwrite(&g_volume, sizeof(g_volume), 1, f);
-		fclose(f);
+	FILE * file = fopen(PREFS_PATH, "wb");
+	if (file != NULL) {
+		fwrite(&Settings, sizeof(struct __SET__), 1, file);
+		fclose(file);
 	}
 }
 
@@ -1294,16 +1274,15 @@ static bool check_hiscores(int score)
 static void show_hiscores(void)
 {
 	char buff[64];
-	int h = gfx_font_height(font);
-	gfx_draw_bg(bg, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
+	gfx_draw_bg(bg, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * FONT_HEIGHT);
 	for (int w, i = 0; i < HISCORES_NR; i++) {
 		snprintf(buff, sizeof(buff),"%d", i + 1);
 		w = gfx_chars_width(font, buff);
 		snprintf(buff, sizeof(buff),"%d.", i + 1);
-		gfx_draw_chars(font, buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h);
+		gfx_draw_chars(font, buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * FONT_HEIGHT, 0);
 		snprintf(buff, sizeof(buff),"%d", game_hiscores[i]);
 		w = gfx_chars_width(font, buff);
-		gfx_draw_chars(font, buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h);
+		gfx_draw_chars(font, buff, SCORES_X + SCORES_W - w, SCORES_Y + i * FONT_HEIGHT, 0);
 	}
 	gfx_update();
 }
@@ -1312,94 +1291,86 @@ static void game_message(const char *str, bool board)
 {
 	int w = gfx_chars_width(font, str);
 	int x = BOARD_X + (BOARD_WIDTH - w) / 2;
-	int y = BOARD_Y + (BOARD_HEIGHT - gfx_font_height(font)) / 2;
+	int y = BOARD_Y + (BOARD_HEIGHT - FONT_HEIGHT) / 2;
 	if (!board) {
 		x = (SCREEN_W - w ) / 2;
-		y = (SCREEN_H - gfx_font_height(font)) / 2;
+		y = (SCREEN_H - FONT_HEIGHT) / 2;
 	}
-	gfx_draw_chars(font, str, x, y);
+	gfx_draw_chars(font, str, x, y, 0);
 	gfx_update();
-}
-
-static void draw_buttons(void)
-{
-	char restart[] = "Restart";
-	int w = gfx_chars_width(font, restart);
-	int h = gfx_font_height(font);
-	restart_x = SCORES_X + (SCORES_W - w)/2;
-	restart_y = SCREEN_H - h * 2 - h/2;
-	restart_w = w;
-	restart_h = h;
-	gfx_draw_chars(font, restart, restart_x, restart_y);
 }
 
 static void game_prep(void)
 {
+	game_loadhiscores(SCORES_PATH);
 	game_lock();
+	
+	srand(time(NULL));
 	gfx_draw_bg(bg, 0, 0, SCREEN_W, SCREEN_H);
-	draw_buttons();
-	gfx_update();
+	
+	Restart.w = gfx_chars_width(font, Restart.name);
+	Restart.h = FONT_HEIGHT;
+	Restart.x = SCORES_X + (SCORES_W - Restart.w) / 2;
+	Restart.y = SCREEN_H - FONT_HEIGHT * 2 - FONT_HEIGHT / 2;
+	gfx_draw_chars(font, Restart.name, Restart.x, Restart.y, 0);
+	
+	Track.x = Music.w + Vol.w + Track.temp / 2;
+	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
+	//Track.off = gfx_load_ttf_font("manaspc.ttf", " ", Track.temp);
+	
+	Timer.w = gfx_chars_width(font, Timer.name) * Timer.temp;
+	Timer.h = FONT_HEIGHT * Timer.temp;
+	Timer.x = SCREEN_W - Timer.w;
+	Timer.y = SCREEN_H - Timer.h;
+	gfx_draw_chars(font, Timer.name, Timer.x, Timer.y, Timer.temp);
+	
 	show_hiscores();
-	show_music_status();
-	show_volume();
-	show_info_status();
-	score_x = SCORE_X + ((SCORE_W) / 2);
+	
+	Music.temp = rand() % TRACKS_COUNT;
+	  Vol.temp = Settings.volume * Vol.w / 256 + Music.w;
+	
+	Music.x = 0;          Music.y = SCREEN_H - Music.h;
+	 Loop.x = Music.w + 5; Loop.y = SCREEN_H - Music.h - Loop.h;
+	 Info.x = 0;           Info.y = SCREEN_H - Music.h - Info.h;
+	  Vol.x = Music.w;      Vol.y = SCREEN_H - Vol.h;
+	
+	draw_Button_for(&Music, (Settings.music != -1));
+	draw_Button_for(&Loop, Settings.loop);
+	draw_Button_for(&Info, Info.hook);
+	draw_Volume_bar();
+	if(Track.name[0])
+		draw_Track_title();
+	score_x = SCORE_X + (SCORE_W / 2);
 	score_w = 0;
 	game_unlock();
+	
+	game_restart(
+		board_load(SAVE_PATH)
+	);
 }
 
-static void show_music_status(void)
-{
-	gfx_draw_bg(bg, music_x, music_y, music_w, music_h);
-	gfx_draw((g_music ? music_on : music_off), music_x, music_y);
-	gfx_update();
-}
-
-static void show_info_status(void)
-{
-	gfx_draw_bg(bg, info_x, info_y, info_w, info_h);
-	gfx_draw((g_info_window ? info_on : info_off), info_x, info_y);
-	gfx_update();
-}
-
-static void game_restart(void)
+static void game_restart(bool clean)
 {
 	game_lock();
-	update_needed = false;
-	game_over = false;
-	board_init();
-	game_init();
-	draw_board();
-	gfx_update();
+	stop_GameTimer();
+	status.update_needed = status.game_over = false;
 	cur_score = -1;
-	cur_mul = 0;
-	show_score();
-	show_hiscores();
-	show_time(true);
-	game_unlock();
-}
-
-static bool game_load(void)
-{
-	game_lock();
-	update_needed = false;
-	board_init();
-	if (board_load(SAVE_PATH)) {
-		game_unlock();
-		return true;
+	cur_mul   = 0;
+	if (!clean) {
+		fetch_game_board();
+		cur_score += board_score();
+		cur_mul   += board_score_mul();
+	} else {
+		board_init();
+		draw_Timer_digit((Settings.lastTime = -1), NULL);
 	}
-	game_over = false;
 	game_init();
-	fetch_game_board();
 	draw_board();
 	gfx_update();
-	cur_score = board_score() - 1;
-	cur_mul = board_score_mul();
 	show_score();
 	show_hiscores();
-	show_time(true);
+	start_GameTimer();
 	game_unlock();
-	return false;
 }
 
 #if defined WINDOWS
@@ -1408,10 +1379,11 @@ int WINAPI WinMain (HINSTANCE hInstance,
                     HINSTANCE hPrevInstance,
                     PSTR szCmdLine,
                     int iCmdShow) {
-	
-	size_t c = sizeof(GAME_DATA_DIR);
-	GetModuleFileName(NULL, GAME_DATA_DIR, c);
-	
+
+	char gameData_dir [ PATH_MAX ];
+	size_t c = sizeof(gameData_dir);
+	GetModuleFileName(NULL, gameData_dir, c);
+
 	char config_dir[ PATH_MAX ];
 	SHGetFolderPath( NULL,
 		CSIDL_FLAG_CREATE | CSIDL_LOCAL_APPDATA,
@@ -1428,25 +1400,27 @@ int main(int argc, char **argv) {
 	
 	char config_dir[ PATH_MAX ];
 	struct passwd *pw = getpwuid(getuid());
-	uint32_t c = sizeof(GAME_DATA_DIR);
+	
+	char gameData_dir[ PATH_MAX ];
+	uint32_t c = sizeof(gameData_dir);
 	
 	#if defined MACOS
-		_NSGetExecutablePath(GAME_DATA_DIR, &c);
+		_NSGetExecutablePath(gameData_dir, &c);
 		puts("This is macOS");
 	#elif defined LINUX
-		if (readlink("/proc/self/exe", GAME_DATA_DIR, c) != -1);
+		if (readlink("/proc/self/exe", gameData_dir, c) != -1);
 			puts("This is Linux");
 	#elif defined SOLARIS
-		strcpy(GAME_DATA_DIR, getexecname());
+		strcpy(gameData_dir, getexecname());
 		puts("This is Solaris");
 	#elif defined FREEBSD
-		sysctl({CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1}, 4, GAME_DATA_DIR, &c, NULL, 0);
+		sysctl({CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1}, 4, gameData_dir, &c, NULL, 0);
 		puts("This is FreeBSD");
 	#elif defined NETBSD
-		if (readlink("/proc/curproc/exe", GAME_DATA_DIR, c) != -1);
+		if (readlink("/proc/curproc/exe", gameData_dir, c) != -1);
 			puts("This is NetBSD");
 	#else
-		strncpy(GAME_DATA_DIR, argv[0], c);
+		strncpy(gameData_dir, argv[0], c);
 	#endif
 	
 	#if defined MAEMO
@@ -1470,51 +1444,55 @@ int main(int argc, char **argv) {
 	
 	do {
 		c--;
-	} while (GAME_DATA_DIR[c] != '/');
+	} while (gameData_dir[c] != '/');
 	
-	GAME_DATA_DIR[c + 1] = '\0';
+	gameData_dir[c + 1] = '\0';
 	
 #endif
 	
 	game_mutex = SDL_CreateMutex();
-	if (gfx_init(GAME_DATA_DIR))
+	if (gfx_init(gameData_dir))
 		return 1;
-	if (snd_init(GAME_DATA_DIR))
-		g_snd_disabled = true;
 	
 	game_loadprefs(PREFS_PATH);
 	
-	if (!g_snd_disabled)
-		snd_volume(g_volume);
-	if (g_music && !snd_music_start()) {
-		g_music = false;
-	}
 	if (!(font = gfx_load_font("fnt.png", FONT_WIDTH)))
 		return 1;
 	
+	FONT_HEIGHT = gfx_font_height(font);
+	
+	if (snd_init(gameData_dir)) {
+		Music.hook = true;
+	} else {
+		snd_volume(Settings.volume);
+		if (Settings.music > -1)
+			snd_music_start(Settings.music, Track.name);
+	}
+	
 	game_message("Loading...", false);
 	
-	if (load_bg() || load_balls() || load_cell() || load_volume() || load_music() || load_info())
+	if (load_bg() || load_balls() || load_cell())
 		return 1;
 #ifndef	MAEMO
 	if (load_pb())
 		return 1;
 #endif
-	game_loadhiscores(SCORES_PATH);
+	
+	if (load_Img_for(&Music) || load_Img_for(&Info) || load_Img_for(&Loop) || load_Img_for(&Vol))
+		return 1;
+	
 	game_prep();
-	
-	if (game_load())
-		game_restart();
-	
-	SDL_AddTimer(20, &refresh_screen, NULL);
 	game_loop();
+	
 	game_lock();
+	stop_GameTimer();
 	free_bg();
 	free_cell();
 	free_balls();
-	free_music();
-	free_info();
-	free_volume();
+	free_Img_for( &Music );
+	free_Img_for( &Info );
+	free_Img_for( &Loop );
+	free_Img_for( &Vol );
 #ifndef MAEMO
 	free_pb();
 #endif
@@ -1523,7 +1501,7 @@ int main(int argc, char **argv) {
 	gfx_done();
 	gfx_font_free(font);
 	SDL_DestroyMutex(game_mutex);
-	if (g_prefs)
+	if (status.store_prefs)
 		game_saveprefs(PREFS_PATH);
 	return 0;
 }
