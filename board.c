@@ -31,6 +31,7 @@ static struct __SESS__ {
 	int last_time;
 } Session;
 
+static unsigned int flush_nr;
 static unsigned int board_state;
 
 typedef struct {
@@ -47,8 +48,6 @@ typedef struct {
 
 flush_t	*flushes[BOARD_W * BOARD_H];
 
-unsigned int flush_nr;
-
 SDL_mutex *board_mutex;
 
 void board_lock(void)
@@ -61,40 +60,43 @@ void board_unlock(void)
 	SDL_mutexV(board_mutex);
 }
 
-static cell_t cell_get(int x, int y);
+static cell_t cell_get(int x, int y)
+{
+	if (x < 0 || x >= BOARD_W)
+		return 0;
+	if (y < 0 || y >= BOARD_H)
+		return 0;
+	return Session.desk[x][y];
+}
 
 bool board_selected(int *x, int *y)
 {
 	board_lock();
-	
-	if (!cell_get(ball_x, ball_y)) {
-		board_unlock();
-		return false;
+	bool selected = !!cell_get(ball_x, ball_y);
+	//fprintf(stderr,"Board selected: %d %d\n", ball_x, ball_y);
+	if ( selected ) {
+		if (x)
+			*x = ball_x;
+		if (y)
+			*y = ball_y;
 	}
-	
-	if (x)
-		*x = ball_x;
-	if (y)
-		*y = ball_y;	
-//	fprintf(stderr,"Board selected: %d %d\n", ball_x, ball_y);	
 	board_unlock();
-	return true;
+	return selected;
 }
 
 bool board_moved(int *x, int *y)
 {
 	board_lock();
-	if (ball_to_x == -1 || ball_to_y == -1 || board_state != CHECK) {
-		board_unlock();
-		return false;
+	bool moved = ball_to_x > -1 && ball_to_y > -1 && board_state == CHECK;
+	//fprintf(stderr,"Ball moved: %d %d\n", ball_to_x, ball_to_y);
+	if ( moved ) {
+		if (x)
+			*x = ball_to_x;
+		if (y)
+			*y = ball_to_y;
 	}
-	if (x)
-		*x = ball_to_x;
-	if (y)
-		*y = ball_to_y;
-//	fprintf(stderr,"Ball moved: %d %d\n", ball_to_x, ball_to_y);
 	board_unlock();
-	return true;
+	return moved;
 }
 
 void board_init(void)
@@ -105,10 +107,9 @@ void board_init(void)
 	board_mutex = SDL_CreateMutex();
 	srand(time(NULL));
 	
-	Session.score      = 0;
+	Session.score      = flush_nr = 0;
 	Session.score_mul  = 1;
 	Session.free_cells = BOARD_W * BOARD_H;
-	flush_nr           = 0;
 	
 	memset(Session.desk,      0, sizeof(Session.desk));
 	memset(Session.ball_pool, 0, sizeof(Session.ball_pool));
@@ -116,10 +117,8 @@ void board_init(void)
 	memset(move_matrix,       0, sizeof(move_matrix));
 	memset(move_matrix_ids,   0, sizeof(move_matrix));
 
-	ball_x = -1;
-	ball_y = -1;
-	ball_to_x = -1;
-	ball_to_y = -1;
+	ball_x = ball_to_x = -1;
+	ball_y = ball_to_y = -1;
 	
 	board_fill_pool();
 	board_fill(NULL, NULL);
@@ -128,15 +127,6 @@ void board_init(void)
 	board_fill_pool();
 	
 	board_state = IDLE;
-}
-
-static cell_t cell_get(int x, int y)
-{
-	if ((x < 0) || (x >= BOARD_W))
-		return 0;
-	if ((y < 0) || (y >= BOARD_H))
-		return 0;
-	return Session.desk[x][y];
 }
 
 cell_t board_cell(int x, int y)
@@ -151,10 +141,8 @@ cell_t board_cell(int x, int y)
 cell_t pool_cell(int x)
 {
 	cell_t cell;
-	if (x >= POOL_SIZE)
-		return 0;
 	board_lock();
-	cell = x < Session.iball ? 0 : Session.ball_pool[x];
+	cell = x < Session.iball || x >= POOL_SIZE ? 0 : Session.ball_pool[x];
 	board_unlock();
 	return cell;
 }
