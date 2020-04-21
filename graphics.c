@@ -367,11 +367,6 @@ void gfx_clear(int x, int y, int w, int h)
 
 bool gfx_init(char *g_datadir)
 {
-	// Initialize SDL
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_AUDIO) < 0) {
-		fprintf(stderr, "Couldn't initialize SDL: %s\n", SDL_GetError());
-		return true;
-	}
 	
 	if (TTF_Init()) {
 		fprintf(stderr, "Couldn't initialize TTF: %s\n", TTF_GetError());
@@ -426,7 +421,7 @@ void gfx_update(void) {
 void gfx_done(void)
 {
 	TTF_Quit();
-	SDL_Quit();
+	//gfx_font_free(font);
 }
 
 /* code from sge */

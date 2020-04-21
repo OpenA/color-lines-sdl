@@ -1,0 +1,33 @@
+#!/bin/sh
+
+CFLAGS='-Wall -O2'
+INSTDIR=/opt
+
+for i in "$@"; do
+  case $i in
+    -instdir=*)
+      INSTDIR="${i#*=}"
+      ;;
+    -cflags=*)
+      CFLAGS="${i#*=}"
+      ;;
+    -cc=*)
+      CC=`which ${i#*=}`
+      ;;
+    *)
+      # unknown option
+      ;;
+  esac
+done
+
+echo ""
+if [ -n "$CC" ]; then
+  echo "  compiler       : $CC"
+else
+  echo "  compiler       : cc"
+fi
+echo "  compiler flags : $CFLAGS"
+echo "  install prefix : $INSTDIR"
+echo ""
+
+`sed "s#@@CC@@#$CC#" in/Makefile.in | sed "s#@@CFLAGS@@#$CFLAGS#" | sed "s#@@INSTDIR@@#$INSTDIR#" > Makefile`

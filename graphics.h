@@ -1,6 +1,9 @@
 #ifndef __GRAPHICS_H__
 #define __GRAPHICS_H__
 
+#define FNT_RAINBOW 0
+#define FNT_MANASPC 1
+
 typedef void* img_t;
 typedef void* fnt_t;
 extern bool gfx_init(char *g_datadir);

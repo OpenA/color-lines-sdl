@@ -7,6 +7,6 @@ Name[ru]=Цветные Шарики
 Comment=Color Lines classic.
 Comment[ru]=Игра цветные шарики.
 Exec=@BINDIR/color-lines
-Icon=color-lines.png
+Icon=@BINDIR/gfx/joker.png
 Terminal=false
 Categories=Game;LogicGame;

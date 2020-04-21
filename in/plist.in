@@ -1,0 +1,30 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
+<plist version='1.0'>
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>color-lines</string>
+	<key>CFBundleIconFile</key>
+	<string>CL</string>
+	<key>CFBundleIdentifier</key>
+	<string>git.OpenA.color-lines</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Color Lines</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VER</string>
+	<key>CFBundleVersion</key>
+	<string>git+-@BUILDVER</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Color lines game written with SDL with bonus features.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>

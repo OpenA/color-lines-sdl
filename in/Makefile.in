@@ -1,0 +1,106 @@
+NAME     := color-lines
+VERSION  := 1.1
+VERTITLE := $(NAME)-$(VERSION)-$(shell uname -m)
+BUILDVER := $(head -c7 .git/FETCH_HEAD)
+COMPILER := @@CC@@
+INSTDIR  := @@INSTDIR@@/$(NAME)
+
+ifdef COMPILER
+CC       := $(COMPILER)
+endif
+
+SRC      := board.c graphics.c main.c sound.c
+OBJ      := $(patsubst %.c, %.o, $(SRC))
+OS       := $(shell uname | sed "y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/")
+
+ifeq ($(shell which ./color-lines),)
+all: color-lines
+else
+all:
+	$(echo 'color-lines: compiled')
+endif
+
+ifeq ($(OS),DARWIN)
+
+	OS      := MACOS
+	INSTDIR := $(HOME)/Applications/Color\ Lines.app/Contents/MacOS
+
+icns:
+	mkdir CL.iconset
+	sips -z 16 16   gfx/joker.png --out CL.iconset/icon_16x16.png
+	sips -z 32 32   gfx/joker.png --out CL.iconset/icon_16x16@2x.png
+	sips -z 32 32   gfx/joker.png --out CL.iconset/icon_32x32.png
+	sips -z 64 64   gfx/joker.png --out CL.iconset/icon_32x32@2x.png
+	iconutil -c icns CL.iconset
+	rm -R CL.iconset
+
+__os_inst: icns
+	install -d $(INSTDIR)/../Resources
+	install -m 755 CL.icns $(INSTDIR)/../Resources
+	echo 'APPL????' > $(INSTDIR)/../PkgInfo
+	sed "s#@BUILDVER#$(BUILDVER)#" in/plist.in | sed "s#@VER#$(VERSION)#" > $(INSTDIR)/../info.plist
+
+tar: all
+	ln -sf ./ $(VERTITLE)
+	tar --exclude='./*/.*' -cf $(VERTITLE).tar Color\ Lines.app
+
+else
+
+ifeq ($(OS),SUNOS)
+	OS := SOLARIS
+endif
+
+ifeq ($(shell which ./color-lines.desktop),)
+desktop:
+	sed "s#@BINDIR#$(INSTDIR)#g" in/desktop.in | sed "s#@VER#$(VERSION)#" > color-lines.desktop
+else
+desktop:
+	$(echo 'color-lines.desktop: compiled')
+endif
+
+__os_inst: desktop
+	install -d $(HOME)/.local/share/applications
+	install -m 755 color-lines.desktop $(HOME)/.local/share/applications/color-lines.desktop
+
+tar: all desktop
+	mkdir -p dist && cd dist && ln -sf ../ $(NAME) && tar --exclude='./*/.*' -cf \
+	$(VERTITLE).tar $(NAME)/gfx $(NAME)/sounds $(NAME)/color-lines $(NAME)/color-lines.desktop
+	rm dist/$(NAME)
+
+endif
+
+CFLAGS   := @@CFLAGS@@ $(shell sdl2-config --cflags) -D$(OS) -DCL_VER=\"$(VERSION)\"
+LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer -lSDL2_ttf
+
+color-lines: $(OBJ)
+	$(CC) -o $(@) $(CFLAGS) $(^) $(LDFLAGS)
+	strip color-lines
+	rm -f *.o
+
+$(OBJ): %.o : %.c
+	$(CC) -c $(<) $(I) $(CFLAGS)
+
+tar.lzma: tar
+	lzma -9 dist/$(VERTITLE).tar
+
+tar.lz: tar
+	lzip -9 dist/$(VERTITLE).tar
+
+tar.xz: tar
+	xz -9 dist/$(VERTITLE).tar
+
+tar.bz2: tar
+	bzip2 --best dist/$(VERTITLE).tar
+
+tar.gz: tar
+	gzip --best dist/$(VERTITLE).tar
+
+clean:
+	rm -f *.o color-lines color-lines.desktop
+
+install: all __os_inst
+	install -d $(INSTDIR)/sounds
+	install -d $(INSTDIR)/gfx
+	install -m 755 sounds/* $(INSTDIR)/sounds/
+	install -m 755 gfx/* $(INSTDIR)/gfx/
+	install -m 755 color-lines $(INSTDIR)

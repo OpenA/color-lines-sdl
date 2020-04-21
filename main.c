@@ -3,17 +3,10 @@
 #include "graphics.h"
 #include "sound.h"
 
-#ifdef MAEMO
-	#define SIZE_STEPS  8 // 16
-	#define SAVE_PATH   "/home/user/.config/color-lines/save"
-	#define SCORES_PATH "/home/user/.config/color-lines/scores"
-	#define PREFS_PATH  "/home/user/.config/color-lines/prefs"
-#else
-	#define SIZE_STEPS  16
-	static char SAVE_PATH   [ PATH_MAX ];
-	static char SCORES_PATH [ PATH_MAX ];
-	static char PREFS_PATH  [ PATH_MAX ];
-#endif
+#define SIZE_STEPS  16
+static char SAVE_PATH   [ PATH_MAX ];
+static char SCORES_PATH [ PATH_MAX ];
+static char PREFS_PATH  [ PATH_MAX ];
 
 #define POOL_SPACE  8
 #define FONT_WIDTH  24
@@ -97,20 +90,12 @@ void game_unlock(void)
 static int FONT_HEIGHT;
 int   moving_nr = 0;
 fnt_t font;
-#ifndef MAEMO
 img_t pb_logo = NULL;
-#endif
 img_t bg_saved = NULL;
 img_t balls[BALLS_NR][ALPHA_STEPS];
 img_t resized_balls[BALLS_NR][SIZE_STEPS];
 img_t jumping_balls[BALLS_NR][JUMP_STEPS];
 img_t cell, bg;
-
-bool alpha = true;
-
-#ifdef MAEMO
-	alpha = false;
-#endif
 
 static bool _Is_onElement(elemen_t target, int x, int y)
 {
@@ -237,9 +222,7 @@ static struct _gfx_word {
 	{ "ball_bomb"  , &balls[8][ALPHA_STEPS - 1] },
 	{ "ball_brush" , &balls[9][ALPHA_STEPS - 1] }, 
 	{ "ball_boom" , &balls[10][ALPHA_STEPS - 1] },
-#ifndef MAEMO
 	{ "pb_logo", &pb_logo },
-#endif	
 	{ NULL },
 };
 
@@ -323,11 +306,7 @@ char info_text[] = " -= Color Lines v"CL_VER" =-\n\n"
 	"SOUNDS: Stealed from some linux games...\n\n"
 	"MUSIC: \"Satellite One\" by Purple Motion.\n\n"
 	"FIRST TESTING & ADVICES: my wife Ola, Sergey Kalichev...\n\n"
-#ifndef MAEMO	
 	"PORTING TO M$ Windoze: Ilja Ryndin from Pinebrush\n pb_logo www.pinebrush.com\n\n"
-#else
-	"PORTING TO M$ Windoze: Ilja Ryndin from Pinebrush\n(www.pinebrush.com)\n\n"
-#endif	
 	"SPECIAL THANX: All UNIX world... \n\n"
 	" Good Luck!";
 
@@ -743,7 +722,6 @@ int game_display_pool(void)
 	return rc;
 }
 
-#ifndef MAEMO
 static bool load_pb(void)
 {
 	pb_logo = gfx_load_image("pb_logo.png", true);
@@ -754,7 +732,6 @@ static void free_pb(void)
 {
 	gfx_free_image(pb_logo);
 }
-#endif
 
 static int load_balls(void)
 {
@@ -834,7 +811,7 @@ static void cell_to_screen(int x, int y, int *ox, int *oy)
 
 bool load_cell(void)
 {
-	cell = gfx_load_image("cell.png", alpha);
+	cell = gfx_load_image("cell.png", true);
 	return !cell;
 }
 
@@ -882,7 +859,7 @@ static int set_volume(int x)
 bool load_bg(void)
 {
 	bg = gfx_load_image("bg.png", false);
-	return !bg;	
+	return !bg;
 }
 
 void free_cell(void)
@@ -899,9 +876,7 @@ void draw_cell(int x, int y)
 {
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
-#ifndef MAEMO
 	gfx_draw_bg(bg, nx, ny, TILE_WIDTH, TILE_HEIGHT);
-#endif
 	gfx_draw(cell, nx, ny);
 }
 
@@ -910,9 +885,6 @@ void update_cell(int x, int y)
 	status.update_needed = true;
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
-#ifdef MAEMO
-	gfx_update();
-#endif
 }
 
 void update_cells(int x1, int y1, int x2, int y2)
@@ -933,9 +905,6 @@ void update_cells(int x1, int y1, int x2, int y2)
 	}
 	cell_to_screen(x1, y1, &nx1, &ny1);
 	cell_to_screen(x2 + 1, y2 + 1, &nx2, &ny2);
-#ifdef MAEMO	
-	gfx_update();
-#endif	
 }
 
 void mark_cells_dirty(int x1, int y1, int x2, int y2)
@@ -961,10 +930,8 @@ void mark_cells_dirty(int x1, int y1, int x2, int y2)
 
 void update_all(void)
 {
-#ifndef MAEMO
 	if (status.update_needed)
 		gfx_update();
-#endif
 	status.update_needed = false;
 }
 
@@ -1080,13 +1047,7 @@ static void game_loop() {
 			int x = event.button.x;
 			int y = event.button.y;
 			if (event.key.state == SDL_PRESSED) {
-				if (event.key.keysym.sym == SDLK_ESCAPE
-#ifdef MAEMO
-				|| event.key.keysym.sym == SDLK_F4
-				|| event.key.keysym.sym == SDLK_F5
-				|| event.key.keysym.sym == SDLK_F6
-#endif
-				) {
+				if (event.key.keysym.sym == SDLK_ESCAPE) {
 					game_lock();
 					status.running = false;
 					game_unlock();
@@ -1094,7 +1055,9 @@ static void game_loop() {
 			}
 			switch (event.type) {
 			case SDL_QUIT: // Quit the game
+				game_lock();
 				status.running = false;
+				game_unlock();
 				break;
 			case SDL_MOUSEMOTION:
 				Board.touch = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
@@ -1410,6 +1373,7 @@ int main(int argc, char **argv) {
 	#elif defined LINUX
 		if (readlink("/proc/self/exe", gameData_dir, c) != -1);
 			puts("This is Linux");
+		c = strlen(gameData_dir);
 	#elif defined SOLARIS
 		strcpy(gameData_dir, getexecname());
 		puts("This is Solaris");
@@ -1419,21 +1383,17 @@ int main(int argc, char **argv) {
 	#elif defined NETBSD
 		if (readlink("/proc/curproc/exe", gameData_dir, c) != -1);
 			puts("This is NetBSD");
+		c = strlen(gameData_dir);
 	#else
 		strncpy(gameData_dir, argv[0], c);
 	#endif
-	
-	#if defined MAEMO
-		putenv("SDL_VIDEO_X11_WMCLASS=lines");
-		strcpy(config_dir, "/home/user/.config");
-	#else
-		strcpy(config_dir, (pw ? pw->pw_dir : "/tmp"));
-		strcat(config_dir, "/.config");
-		strcpy(SAVE_PATH  , config_dir); strcat(SAVE_PATH  , "/color-lines/save");
-		strcpy(SCORES_PATH, config_dir); strcat(SCORES_PATH, "/color-lines/scores");
-		strcpy(PREFS_PATH , config_dir); strcat(PREFS_PATH , "/color-lines/prefs");
-	#endif
-	
+
+	strcpy(config_dir, (pw ? pw->pw_dir : "/tmp"));
+	strcat(config_dir, "/.config");
+	strcpy(SAVE_PATH  , config_dir); strcat(SAVE_PATH  , "/color-lines/save");
+	strcpy(SCORES_PATH, config_dir); strcat(SCORES_PATH, "/color-lines/scores");
+	strcpy(PREFS_PATH , config_dir); strcat(PREFS_PATH , "/color-lines/prefs");
+
 	if (access(config_dir, F_OK ) == -1)
 		mkdir(config_dir, 0755);
 	
@@ -1441,7 +1401,7 @@ int main(int argc, char **argv) {
 	
 	if (access(config_dir, F_OK ) == -1)
 		mkdir(config_dir, 0755);
-	
+
 	do {
 		c--;
 	} while (gameData_dir[c] != '/');
@@ -1449,8 +1409,18 @@ int main(int argc, char **argv) {
 	gameData_dir[c + 1] = '\0';
 	
 #endif
-	
-	game_mutex = SDL_CreateMutex();
+
+	// Initialize SDL
+	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
+		fprintf(stderr, "Couldn't initialize SDL: %s\n", SDL_GetError());
+		return -1;
+	}
+
+	if (!(game_mutex = SDL_CreateMutex())) {
+		fprintf(stderr, "Couldn't create mutex: %s\n", SDL_GetError());
+		return -1;
+	}
+
 	if (gfx_init(gameData_dir))
 		return 1;
 	
@@ -1471,12 +1441,8 @@ int main(int argc, char **argv) {
 	
 	game_message("Loading...", false);
 	
-	if (load_bg() || load_balls() || load_cell())
+	if (load_bg() || load_balls() || load_cell() || load_pb())
 		return 1;
-#ifndef	MAEMO
-	if (load_pb())
-		return 1;
-#endif
 	
 	if (load_Img_for(&Music) || load_Img_for(&Info) || load_Img_for(&Loop) || load_Img_for(&Vol))
 		return 1;
@@ -1493,9 +1459,7 @@ int main(int argc, char **argv) {
 	free_Img_for( &Info );
 	free_Img_for( &Loop );
 	free_Img_for( &Vol );
-#ifndef MAEMO
 	free_pb();
-#endif
 	game_unlock();
 	snd_done();
 	gfx_done();
@@ -1503,5 +1467,6 @@ int main(int argc, char **argv) {
 	SDL_DestroyMutex(game_mutex);
 	if (status.store_prefs)
 		game_saveprefs(PREFS_PATH);
+	SDL_Quit();
 	return 0;
 }
