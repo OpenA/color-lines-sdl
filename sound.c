@@ -7,16 +7,14 @@
 
 static struct {
 	Mix_Music *soundtrack;
-	Mix_Chunk *effects[ EFFECTS_NR ]; /* Mix_Chunk is like Mix_Music, only it's for ordinary sounds. */
 	short current;
 	bool disabled;
-	char dir[ PATH_MAX ];
 	char title[ MUS_HEAD ];
-	int channels[ EFFECTS_NR ];
-} SND = {
-	.effects  = { NULL, NULL, NULL, NULL, NULL, NULL, NULL },
-	.channels = { -1, -1, -1, -1, -1, -1, -1}
-};
+} SND;
+
+/* Mix_Chunk is like Mix_Music, only it's for ordinary sounds. */
+Mix_Chunk *effects[ EFFECTS_NR ] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+      int channels[ EFFECTS_NR ] = { -1, -1, -1, -1, -1, -1, -1 };
 
 static const unsigned char trackList[ TRACKS_COUNT ][32] = {
 	"4stonewalls.it",
@@ -47,31 +45,28 @@ static const unsigned char trackList[ TRACKS_COUNT ][32] = {
 	"xmas.xm"
 };
 
-bool snd_init(const char *game_data_dir)
+bool snd_init(void)
 {
 	if (Mix_OpenAudio(44100, AUDIO_S16, 2, 4096)) {
-		fprintf(stderr, "Unable to open audio!\n");
+		fprintf(stderr, "sound.c: Unable to open audio!\n");
 		return true;
 	}
-	strcpy(SND.dir, game_data_dir);
-	strcat(SND.dir, "sounds/");
-	
-	char click   [ PATH_MAX ]; strcpy( click   , SND.dir ); strcat( click   , "click.wav"    );
-	char bonus   [ PATH_MAX ]; strcpy( bonus   , SND.dir ); strcat( bonus   , "bonus.wav"    );
-	char hiscore [ PATH_MAX ]; strcpy( hiscore , SND.dir ); strcat( hiscore , "hiscore.wav"  );
-	char gameover[ PATH_MAX ]; strcpy( gameover, SND.dir ); strcat( gameover, "gameover.wav" );
-	char boom    [ PATH_MAX ]; strcpy( boom    , SND.dir ); strcat( boom    , "boom.wav"     );
-	char fadeout [ PATH_MAX ]; strcpy( fadeout , SND.dir ); strcat( fadeout , "fadeout.wav"  );
-	char paint   [ PATH_MAX ]; strcpy( paint   , SND.dir ); strcat( paint   , "paint.wav"    );
-	
-	SND.effects[SND_CLICK]    = Mix_LoadWAV( click    );
-	SND.effects[SND_BONUS]    = Mix_LoadWAV( bonus    );
-	SND.effects[SND_HISCORE]  = Mix_LoadWAV( hiscore  );
-	SND.effects[SND_GAMEOVER] = Mix_LoadWAV( gameover );
-	SND.effects[SND_BOOM]     = Mix_LoadWAV( boom     );
-	SND.effects[SND_FADEOUT]  = Mix_LoadWAV( fadeout  );
-	SND.effects[SND_PAINT]    = Mix_LoadWAV( paint    );
-	
+	char click   [ PATH_MAX ]; strcpy( click   , GAME_DIR ); strcat( click   , "sounds/click.wav"    );
+	char bonus   [ PATH_MAX ]; strcpy( bonus   , GAME_DIR ); strcat( bonus   , "sounds/bonus.wav"    );
+	char hiscore [ PATH_MAX ]; strcpy( hiscore , GAME_DIR ); strcat( hiscore , "sounds/hiscore.wav"  );
+	char gameover[ PATH_MAX ]; strcpy( gameover, GAME_DIR ); strcat( gameover, "sounds/gameover.wav" );
+	char boom    [ PATH_MAX ]; strcpy( boom    , GAME_DIR ); strcat( boom    , "sounds/boom.wav"     );
+	char fadeout [ PATH_MAX ]; strcpy( fadeout , GAME_DIR ); strcat( fadeout , "sounds/fadeout.wav"  );
+	char paint   [ PATH_MAX ]; strcpy( paint   , GAME_DIR ); strcat( paint   , "sounds/paint.wav"    );
+
+	effects[SND_CLICK]    = Mix_LoadWAV( click    );
+	effects[SND_BONUS]    = Mix_LoadWAV( bonus    );
+	effects[SND_HISCORE]  = Mix_LoadWAV( hiscore  );
+	effects[SND_GAMEOVER] = Mix_LoadWAV( gameover );
+	effects[SND_BOOM]     = Mix_LoadWAV( boom     );
+	effects[SND_FADEOUT]  = Mix_LoadWAV( fadeout  );
+	effects[SND_PAINT]    = Mix_LoadWAV( paint    );
+
 	return false;
 }
 
@@ -101,7 +96,8 @@ void snd_music_start(short num, char *name)
 	char track[ PATH_MAX ],
 	      head[ MUS_HEAD ];
 	
-	strcpy(track, SND.dir);
+	strcpy(track, GAME_DIR);
+	strcat(track, "sounds/");
 	strcat(track, (char*)trackList[ (SND.current = num) ]);
 	
 	Mix_VolumeMusic(Mix_VolumeMusic(-1)); // -1 does not set the volume, but does return the current volume setting.
@@ -134,7 +130,7 @@ void snd_music_stop(void)
 void snd_done(void)
 {
 	for (int i = 0; i < EFFECTS_NR; i++)
-		Mix_FreeChunk(SND.effects[i]);
+		Mix_FreeChunk(effects[i]);
 	Mix_HookMusicFinished(NULL);
 	Mix_HaltMusic();
 	Mix_FreeMusic(SND.soundtrack);
@@ -145,5 +141,5 @@ void snd_done(void)
 void snd_play(int num, int cnt)
 {
 	if (!SND.disabled && num < EFFECTS_NR)
-		SND.channels[num] = Mix_PlayChannel(-1, SND.effects[num], cnt - 1);
+		channels[num] = Mix_PlayChannel(-1, effects[num], cnt - 1);
 }

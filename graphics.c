@@ -8,7 +8,6 @@ static SDL_Window *sdlWindow;
 static SDL_Renderer *sdlRenderer;
 static SDL_Texture *sdlTexture;
 static SDL_Surface *screen;
-static char GFX_DIR[ PATH_MAX ];
 
 void gfx_free_image(img_t p)
 {
@@ -69,15 +68,16 @@ img_t gfx_combine(img_t src, img_t dst)
 
 img_t gfx_load_image(const char *file, bool alpha)
 {
-	char filepath[ PATH_MAX ];
+	char path[ PATH_MAX ];
 	
-	strcpy(filepath, GFX_DIR);
-	strcat(filepath, file);
+	strcpy(path, GAME_DIR);
+	strcat(path, "gfx/");
+	strcat(path, file);
 	
 	SDL_Surface *img, *surf;
 
-	if (!(img = IMG_Load(filepath))) {
-		fprintf(stderr, "File not found: %s\n", file);
+	if (!(img = IMG_Load(path))) {
+		fprintf(stderr, "graphics.c: File not found - '%s'\n", path);
 		return NULL;
 	}
 	if (alpha) {
@@ -87,7 +87,7 @@ img_t gfx_load_image(const char *file, bool alpha)
 	// Create hardware surface
 	if (!(surf = SDL_CreateRGBSurface(0, img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0))) {
 		SDL_FreeSurface(img);
-		fprintf(stderr, "Error creating surface!\n");
+		fprintf(stderr, "graphics.c: Error creating surface!\n");
 		return NULL;
 	}
 	SDL_BlitSurface(img, NULL, surf, NULL);
@@ -202,7 +202,7 @@ img_t gfx_draw_ttf_text(char *text)
 	SDL_Surface* mask;
 
 	if(!ttf || !(mask = TTF_RenderText_Solid(ttf, text, color))) {
-		fprintf(stderr, "can't draw TTF text \'%s\'", text);
+		fprintf(stderr, "graphics.c: Can't draw TTF text '%s'\n", text);
 		return NULL;
 	}
 	color.r = 0xB8; color.g = 0x7B;
@@ -326,11 +326,8 @@ void gfx_clear(int x, int y, int w, int h)
 	SDL_FillRect(screen, &dest, SDL_MapRGB(screen->format, 0, 0, 0));
 }
 
-bool gfx_init(char *g_datadir)
+bool gfx_init(void)
 {
-	strcpy(GFX_DIR, g_datadir);
-	strcat(GFX_DIR, "gfx/");
-	
 	if (SDL_CreateWindowAndRenderer(SCREEN_W, SCREEN_H,
 #ifdef MAEMO
 		SDL_WINDOW_FULLSCREEN_DESKTOP
@@ -338,7 +335,7 @@ bool gfx_init(char *g_datadir)
 		SDL_WINDOW_RESIZABLE
 #endif
 	, &sdlWindow, &sdlRenderer)) {
-		fprintf(stderr, "Unable to set %dx%d video: %s\n", SCREEN_W, SCREEN_H, SDL_GetError());
+		fprintf(stderr, "graphics.c: Unable to create %dx%d window - '%s'\n", SCREEN_W, SCREEN_H, SDL_GetError());
 		return true;
 	}
 	
@@ -357,7 +354,7 @@ bool gfx_init(char *g_datadir)
 	SDL_Surface * icon;
 	char ipath[ PATH_MAX ];
 	
-	strcpy(ipath, g_datadir);
+	strcpy(ipath, GAME_DIR);
 	strcat(ipath, "gfx/joker.png");
 	
 	if ((icon = IMG_Load(ipath))) {
@@ -365,11 +362,13 @@ bool gfx_init(char *g_datadir)
 	}
 #endif
 	if (TTF_Init()) {
-		fprintf(stderr, "Couldn't initialize TTF: %s\n", TTF_GetError());
+		fprintf(stderr, "graphics.c: Couldn't initialize TTF - '%s'\n", TTF_GetError());
 	} else {
 		char ttfpath[ PATH_MAX ];
-		strcpy(ttfpath, GFX_DIR);
-		strcat(ttfpath, "manaspc.ttf");
+
+		strcpy(ttfpath, GAME_DIR);
+		strcat(ttfpath, "gfx/manaspc.ttf");
+
 		ttf = TTF_OpenFont(ttfpath, TTF_PX);
 	}
 	if (gfx_load_font("fnt.png", FONT_WIDTH))

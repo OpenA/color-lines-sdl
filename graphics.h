@@ -5,7 +5,7 @@
 #define TTF_PX     14
 
 typedef void* img_t;
-extern bool gfx_init(char *g_datadir);
+extern bool gfx_init  (void);
 extern void gfx_update(void);
 extern void gfx_done  (void);
 extern void gfx_clear(int x, int y, int w, int h);
