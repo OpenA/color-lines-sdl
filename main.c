@@ -9,7 +9,6 @@ static char SCORES_PATH [ PATH_MAX ];
 static char PREFS_PATH  [ PATH_MAX ];
 
 #define POOL_SPACE  8
-#define FONT_WIDTH  24
 #define SCORES_X    60
 #define SCORES_Y    225
 #define SCORES_W   (BOARD_X - TILE_WIDTH - SCORES_X - 40)
@@ -87,9 +86,7 @@ void game_unlock(void)
 	SDL_mutexV(game_mutex);
 }
 
-static int FONT_HEIGHT;
 int   moving_nr = 0;
-fnt_t font;
 img_t pb_logo = NULL;
 img_t bg_saved = NULL;
 img_t balls[BALLS_NR][ALPHA_STEPS];
@@ -148,7 +145,7 @@ static void draw_Volume_bar(void)
 static void draw_Track_title(void)
 {
 	gfx_draw_bg(bg, Track.x, Track.y, Track.w, Track.h);
-	Track.on = gfx_load_ttf_font("manaspc.ttf", Track.name, Track.temp);
+	Track.on = gfx_draw_ttf_text(Track.name);
 	Track.w  = gfx_img_w(Track.on);
 	Track.h  = gfx_img_h(Track.on);
 	gfx_draw_wh(Track.on, Track.x, Track.y, Track.w, Track.h);
@@ -162,10 +159,10 @@ static Uint32 draw_Timer_digit(Uint32 interval, void *_null)
 	sprintf(Timer.name, "%02d:%02d", (int)(Settings.lastTime / 60), Settings.lastTime % 60);
 	gfx_draw_bg(bg, Timer.x, Timer.y, Timer.w, Timer.h);
 	
-	Timer.w = gfx_chars_width(font, Timer.name) * Timer.temp;
+	Timer.w = gfx_chars_width(Timer.name) * Timer.temp;
 	Timer.x = SCREEN_W - Timer.w;
 	
-	gfx_draw_chars(font, Timer.name, Timer.x, Timer.y, Timer.temp);
+	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
 	gfx_update();
 	
 	return interval;
@@ -246,7 +243,7 @@ static const char *game_print(const char *str)
 		ptr++;
 	while (*ptr) {
 		int w = 0;
-		int h = FONT_HEIGHT;
+		int h = gfx_font_height();
 		while (w < BOARD_WIDTH) {
 			char word[128];
 			int rc;
@@ -257,19 +254,19 @@ static const char *game_print(const char *str)
 			if (img) {
 				w += gfx_img_w(img);
 			} else {
-				w += gfx_chars_width(font, word);
+				w += gfx_chars_width(word);
 			}
 			if (w > BOARD_WIDTH)
 				break;
 			if (img) {
 				gfx_draw(img, x, y);
-				x += gfx_img_w(img) + gfx_chars_width(font, " ");
+				x += gfx_img_w(img) + gfx_chars_width(" ");
 				h = _max(h, gfx_img_h(img));
 			} else {	
 				strcat(word, " ");	
-				gfx_draw_chars(font, word, x, y, 0);
-				w += gfx_chars_width(font, " ");
-				x += gfx_chars_width(font, word);
+				gfx_draw_text(word, x, y, 0);
+				w += gfx_chars_width(" ");
+				x += gfx_chars_width(word);
 			}
 			ptr += rc;
 			if (*ptr == '\n') {
@@ -281,7 +278,7 @@ static const char *game_print(const char *str)
 		x  = BOARD_X;
 		y += h;
 		if (y >= BOARD_Y + BOARD_HEIGHT - 2*h) {
-			gfx_draw_chars(font, "MORE", BOARD_X, BOARD_Y + BOARD_HEIGHT - h, 0);
+			gfx_draw_text("MORE", BOARD_X, BOARD_Y + BOARD_HEIGHT - h, 0);
 			break;
 		}
 	}
@@ -1132,7 +1129,7 @@ static int score_w = 0;
 static void show_score(void)
 {
 	char buff[64];
-	int w, x;
+	int w, x, h = gfx_font_height();
 	int new_score = board_score();
 	static int timer = 0;
 	
@@ -1145,11 +1142,11 @@ static void show_score(void)
 				snd_play(SND_BONUS, 1);
 			}
 			snprintf(buff, sizeof(buff), "Bonus x%d", board_score_mul());
-			w = gfx_chars_width(font, buff);
+			w = gfx_chars_width(buff);
 			x = SCORE_X + ((SCORE_W - w) / 2);
-			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), FONT_HEIGHT);
+			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), h);
 			if ((timer / BONUS_BLINKS) & 1)
-				gfx_draw_chars(font, buff, x, SCORE_Y, 0);
+				gfx_draw_text(buff, x, SCORE_Y, 0);
 			gfx_update();
 			score_x = x;
 			score_w = w;
@@ -1160,10 +1157,10 @@ static void show_score(void)
 			if (cur_score != new_score) {
 				snd_play(SND_CLICK, 1);
 			}
-			w = gfx_chars_width(font, buff);
+			w = gfx_chars_width(buff);
 			x = SCORE_X + ((SCORE_W - w) / 2);
-			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), FONT_HEIGHT);
-			gfx_draw_chars(font, buff, x, SCORE_Y, 0);
+			gfx_draw_bg(bg, _min(score_x, x), SCORE_Y, _max(score_w, w), h);
+			gfx_draw_text(buff, x, SCORE_Y, 0);
 			gfx_update();
 			score_x = x;
 			score_w = w;
@@ -1237,29 +1234,31 @@ static bool check_hiscores(int score)
 static void show_hiscores(void)
 {
 	char buff[64];
-	gfx_draw_bg(bg, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * FONT_HEIGHT);
-	for (int w, i = 0; i < HISCORES_NR; i++) {
+	int w, h = gfx_font_height();
+	gfx_draw_bg(bg, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
+	for (int i = 0; i < HISCORES_NR; i++) {
 		snprintf(buff, sizeof(buff),"%d", i + 1);
-		w = gfx_chars_width(font, buff);
+		w = gfx_chars_width(buff);
 		snprintf(buff, sizeof(buff),"%d.", i + 1);
-		gfx_draw_chars(font, buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * FONT_HEIGHT, 0);
+		gfx_draw_text(buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h, 0);
 		snprintf(buff, sizeof(buff),"%d", game_hiscores[i]);
-		w = gfx_chars_width(font, buff);
-		gfx_draw_chars(font, buff, SCORES_X + SCORES_W - w, SCORES_Y + i * FONT_HEIGHT, 0);
+		w = gfx_chars_width(buff);
+		gfx_draw_text(buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h, 0);
 	}
 	gfx_update();
 }
 
 static void game_message(const char *str, bool board)
 {
-	int w = gfx_chars_width(font, str);
-	int x = BOARD_X + (BOARD_WIDTH - w) / 2;
-	int y = BOARD_Y + (BOARD_HEIGHT - FONT_HEIGHT) / 2;
+	int w = gfx_chars_width(str);
+	int h = gfx_font_height();
+	int x = BOARD_X + (BOARD_WIDTH  - w) / 2;
+	int y = BOARD_Y + (BOARD_HEIGHT - h) / 2;
 	if (!board) {
 		x = (SCREEN_W - w ) / 2;
-		y = (SCREEN_H - FONT_HEIGHT) / 2;
+		y = (SCREEN_H - h ) / 2;
 	}
-	gfx_draw_chars(font, str, x, y, 0);
+	gfx_draw_text(str, x, y, 0);
 	gfx_update();
 }
 
@@ -1271,21 +1270,21 @@ static void game_prep(void)
 	srand(time(NULL));
 	gfx_draw_bg(bg, 0, 0, SCREEN_W, SCREEN_H);
 	
-	Restart.w = gfx_chars_width(font, Restart.name);
-	Restart.h = FONT_HEIGHT;
+	int fnt_h = gfx_font_height();
+	Restart.w = gfx_chars_width(Restart.name);
+	Restart.h = fnt_h;
 	Restart.x = SCORES_X + (SCORES_W - Restart.w) / 2;
-	Restart.y = SCREEN_H - FONT_HEIGHT * 2 - FONT_HEIGHT / 2;
-	gfx_draw_chars(font, Restart.name, Restart.x, Restart.y, 0);
+	Restart.y = SCREEN_H - fnt_h * 2 - fnt_h / 2;
+	gfx_draw_text(Restart.name, Restart.x, Restart.y, 0);
 	
 	Track.x = Music.w + Vol.w + Track.temp / 2;
 	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
-	//Track.off = gfx_load_ttf_font("manaspc.ttf", " ", Track.temp);
 	
-	Timer.w = gfx_chars_width(font, Timer.name) * Timer.temp;
-	Timer.h = FONT_HEIGHT * Timer.temp;
+	Timer.w = gfx_chars_width(Timer.name) * Timer.temp;
+	Timer.h = fnt_h * Timer.temp;
 	Timer.x = SCREEN_W - Timer.w;
 	Timer.y = SCREEN_H - Timer.h;
-	gfx_draw_chars(font, Timer.name, Timer.x, Timer.y, Timer.temp);
+	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
 	
 	show_hiscores();
 	
@@ -1426,11 +1425,6 @@ int main(int argc, char **argv) {
 	
 	game_loadprefs(PREFS_PATH);
 	
-	if (!(font = gfx_load_font("fnt.png", FONT_WIDTH)))
-		return 1;
-	
-	FONT_HEIGHT = gfx_font_height(font);
-	
 	if (snd_init(gameData_dir)) {
 		Music.hook = true;
 	} else {
@@ -1463,7 +1457,6 @@ int main(int argc, char **argv) {
 	game_unlock();
 	snd_done();
 	gfx_done();
-	gfx_font_free(font);
 	SDL_DestroyMutex(game_mutex);
 	if (status.store_prefs)
 		game_saveprefs(PREFS_PATH);

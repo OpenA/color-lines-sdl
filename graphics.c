@@ -27,101 +27,88 @@ int	gfx_img_h(img_t pixmap)
 
 img_t gfx_grab_screen(int x, int y, int w, int h)
 {
-	SDL_Rect dst, src;
-	SDL_Surface *img = SDL_CreateRGBSurface(0, w, h, 16, 0xF800, 0x7E0, 0x1F, 0);
-	if (!img)
+	SDL_Rect dest, src;
+	SDL_Surface * img;
+	if (!(img = SDL_CreateRGBSurface(0, w, h, 16, 0xF800, 0x7E0, 0x1F, 0)))
 		return NULL;
-	src.x = x;
-	src.y = y;
-	src.w = w;
-	src.h = h;
-	dst.x = 0;
-	dst.y = 0;
-	dst.w = w;
-	dst.h = h;
-	SDL_BlitSurface(screen, &src, img, &dst);
+	src.x = x; dest.x = 0;
+	src.y = y; dest.y = 0;
+	src.w = dest.w = w;
+	src.h = dest.h = h;
+	SDL_BlitSurface(screen, &src, img, &dest);
 	return img;
 }
 
 img_t gfx_set_alpha(img_t src, int alpha)
 {
-	Uint32 *ptr;
-	Uint32 col;
-	int size;
-	
-	SDL_Surface *img = SDL_ConvertSurfaceFormat((SDL_Surface*)src, SDL_PIXELFORMAT_RGBA8888, 0);
-	if (!img)
+	SDL_Surface * img;
+
+	if (!(img = SDL_ConvertSurfaceFormat((SDL_Surface*)src, SDL_PIXELFORMAT_RGBA8888, 0)))
 		return NULL;
-	ptr = (Uint32*)img->pixels;
-	size = img->w * img->h;
-	while (size --) {
+	
+	Uint32 *ptr = (Uint32*)img->pixels;
+	Uint32 size = img->w * img->h;
+	for (; size > 0 ; size--, ptr++) {
 		Uint8 r, g, b, a;
-		col = *ptr;
+		Uint32 col = *ptr;
 		SDL_GetRGBA(col, img->format, &r, &g, &b, &a);
 		col = SDL_MapRGBA(img->format, r, g, b, a * alpha / 255);
 		*ptr = col;
-		ptr++;
 	}
 	return img;
 }
 
 img_t gfx_combine(img_t src, img_t dst)
 {
-	img_t new;
+	SDL_Surface * new;
 	if (!(new = SDL_ConvertSurfaceFormat(dst, SDL_PIXELFORMAT_RGBA8888, 0)))
 		return NULL;
-	SDL_BlitSurface((SDL_Surface *)src, NULL, (SDL_Surface *)new, NULL);
-	return new;	
+	SDL_BlitSurface((SDL_Surface *)src, NULL, new, NULL);
+	return new;
 }
 
-img_t gfx_load_image(char *filename, bool transparent)
+img_t gfx_load_image(const char *file, bool alpha)
 {
-	SDL_Surface *img, *img2;
-	
 	char filepath[ PATH_MAX ];
 	
 	strcpy(filepath, GFX_DIR);
-	strcat(filepath, filename);
+	strcat(filepath, file);
 	
+	SDL_Surface *img, *surf;
+
 	if (!(img = IMG_Load(filepath))) {
-		fprintf(stderr, "File not found: %s\n", filepath);
+		fprintf(stderr, "File not found: %s\n", file);
 		return NULL;
 	}
-	if (transparent) {
+	if (alpha) {
 		SDL_SetColorKey(img, SDL_HasColorKey(img), img->format->format);
 		return img;
-	} 
+	}
 	// Create hardware surface
-	img2 = SDL_CreateRGBSurface(0, img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0);
-	if (!img2) {
+	if (!(surf = SDL_CreateRGBSurface(0, img->w, img->h, 16, 0xF800, 0x7E0, 0x1F, 0))) {
 		SDL_FreeSurface(img);
 		fprintf(stderr, "Error creating surface!\n");
 		return NULL;
 	}
-	
-	if (transparent)
-		SDL_SetColorKey(img2, SDL_HasColorKey(img2), 0xF81F);
-	
-	//SDL_SetAlpha(img2, 0, 0);
-	SDL_BlitSurface(img, NULL, img2, NULL);
+	SDL_BlitSurface(img, NULL, surf, NULL);
 	SDL_FreeSurface(img);
-	return img2;
+	return surf;
 }
 
 typedef struct {
-	int	h;
-	int	w;
 	img_t font;
-	int	n;
+	int	w, h, n;
 	int	widths[256];
 	int	disp[256];
-} _font_t;
+} font_t;
+
+font_t * font;
+TTF_Font *ttf;
 
 Uint32 sge_GetPixel(SDL_Surface *surface, Sint16 x, Sint16 y);
 
-static int fnt_calc_idx(fnt_t f, char c)
+static int fnt_calc_idx(int n, char c)
 {
-	_font_t *fnt = (_font_t *)f;
 	int idx = (unsigned char)c;
 #ifdef RUSSIAN
 	if (idx >= 160) {
@@ -129,46 +116,38 @@ static int fnt_calc_idx(fnt_t f, char c)
 		idx -= 65;
 	}
 #endif
-	if (idx > (fnt->n + 32) || idx < 32) {
+	if (idx > (n + 0x20) || idx < 0x20) {
 //		fprintf(stderr, "%d\n", idx);
 		return -1;
 	}
-	idx = idx - (int)' ' - 1;
-	return idx;
+	return (idx - 0x20 - 1);
 }
 
-int gfx_draw_char(fnt_t f, const char c, int x, int y, float scale)
+int gfx_draw_char(const char c, int x, int y, float s)
 {
-	_font_t *fnt = (_font_t *)f;
-	int idx, from;
-	
 	SDL_Surface *pixbuf;
 	SDL_Rect dest, src;
 	
 	if (c == ' ')
-		return fnt->w / 2;
-	
-	idx = fnt_calc_idx(f, c);
+		return font->w / 2;
+
+	int idx = fnt_calc_idx(font->n, c);
 	if (idx < 0)
 		return 0;
 	
-	from   = (idx) * fnt->w + (fnt->disp[idx]);
-	pixbuf = (SDL_Surface *)(fnt->font);
-	
-	src.x = from;
-	src.y = 0;
-	src.w = fnt->widths[idx];
-	src.h = fnt->h;
-	
+	pixbuf = (SDL_Surface *)(font->font);
 	dest.x = x;
 	dest.y = y;
-	dest.w = fnt->widths[idx];
-	dest.h = fnt->h;
 	
-	if (scale && scale != 1) {
+	src.y = 0;
+	src.x = idx * font->w + (font->disp[idx]);
+	src.w = dest.w = font->widths[idx];
+	src.h = dest.h = font->h;
+	
+	if (s && s != 1) {
 		SDL_Rect scl;
-		scl.x = 0; scl.w = dest.w = (int)(dest.w * scale);
-		scl.y = 0; scl.h = dest.h = (int)(dest.h * scale);
+		scl.x = 0; scl.w = dest.w = (int)(dest.w * s);
+		scl.y = 0; scl.h = dest.h = (int)(dest.h * s);
 		SDL_Surface *scaled = SDL_CreateRGBSurface(
 			pixbuf->flags, scl.w, scl.h, 32,
 			pixbuf->format->Rmask,
@@ -177,66 +156,60 @@ int gfx_draw_char(fnt_t f, const char c, int x, int y, float scale)
 			pixbuf->format->Amask);
 		SDL_BlitScaled(pixbuf, &src, scaled, &scl);
 		SDL_BlitSurface(scaled, &scl, screen, &dest);
-		//fprintf(stderr, "scaled: %f\n", scale);
+		//fprintf(stderr, "scaled: %f\n", s);
 	} else
 		SDL_BlitSurface(pixbuf, &src, screen, &dest);
 	return dest.w;
 }
 
-int gfx_chars_width(fnt_t f, const char *str)
+int gfx_chars_width(const char *str)
 {
-	_font_t *fnt = (_font_t *)f;
-	int i, x = 0;
-	for (i = 0; i < strlen(str); i++ ) {
-		int idx/*, from*/;
+	const int Wd = font->w / 2;
+	const int Ni = font->n;
+
+	int result = 0;
+
+	for (int i = 0; i < strlen(str); i++) {
 		if (str[i] == ' ') {
-			x += fnt->w / 2;
+			result += Wd;
 			continue;
 		}
-		idx = fnt_calc_idx(f, str[i]);
-		if (idx < 0)
-			continue;
-		/*from = (idx) * fnt->w + (fnt->disp[idx]);*/
-		x += fnt->widths[idx] + 1;
+		int idx = fnt_calc_idx(Ni, str[i]);
+		if (idx >= 0) {
+			result += font->widths[idx] + 1;
+		}
 	}
-	return x;
+	return result;
 }
 
-int gfx_draw_chars(fnt_t f, const char *str, int x, int y, float scale)
+int gfx_draw_text(const char *str, int x, int y, float s)
 {
-	int i, x_orig = x;
-	for (i = 0; i < strlen(str); i++ ) {
-		x += gfx_draw_char(f, str[i], x, y, scale);
+	int x_orig = x;
+	for (int i = 0; i < strlen(str); i++) {
+		x += gfx_draw_char(str[i], x, y, s);
 	}
 	return x - x_orig;
 }
 
-int gfx_font_height(fnt_t f)
+int gfx_font_height(void)
 {
-	_font_t	*font = (_font_t *)f;
 	return font->h;
 }
 
-img_t gfx_load_ttf_font(char *ttf, char *text, int px)
+img_t gfx_draw_ttf_text(char *text)
 {
-	char path[ PATH_MAX ];
-	
-	strcpy(path, GFX_DIR);
-	strcat(path, ttf);
-	
-	TTF_Font* font  = TTF_OpenFont(path, px);
 	SDL_Color color = { 0x00, 0x00, 0x00 };
 	SDL_Surface* mask;
-	
-	if(!font || !(mask = TTF_RenderText_Solid(font, text, color))) {
-		fprintf(stderr, "can't draw text \'%s\' with %s", text, ttf);
+
+	if(!ttf || !(mask = TTF_RenderText_Solid(ttf, text, color))) {
+		fprintf(stderr, "can't draw TTF text \'%s\'", text);
 		return NULL;
 	}
 	color.r = 0xB8; color.g = 0x7B;
 	
 	SDL_Rect dest, src;
-	SDL_Surface* fill = TTF_RenderText_Solid(font, text, color);
-	
+	SDL_Surface* fill = TTF_RenderText_Solid(ttf, text, color);
+
 	SDL_Surface* pixbuf = SDL_CreateRGBSurfaceWithFormat(0,
 		(src.w = dest.w = fill->w) + 1,
 		(src.h = dest.h = fill->h) + 1,
@@ -249,50 +222,51 @@ img_t gfx_load_ttf_font(char *ttf, char *text, int px)
 	SDL_BlitSurface(fill, &src, pixbuf, &src);
 	SDL_FreeSurface(mask);
 	SDL_FreeSurface(fill);
-	TTF_CloseFont(font);
-	
+
 	return pixbuf;
 }
 
-fnt_t gfx_load_font(char *fname, int w)
+bool gfx_load_font(const char *file, const int cW)
 {
-	SDL_Surface *fn = (SDL_Surface*)gfx_load_image(fname, true);
+	SDL_Surface *img = (SDL_Surface*)gfx_load_image(file, true);
 	
-	if (!fn)
-		return NULL;
+	if (!img)
+		return true;
 	
-	_font_t	*font = malloc(sizeof(*font));
+	font = malloc(sizeof(*font));
 	
 	if (!font) {
-		gfx_free_image(fn);
-		return NULL;
+		gfx_free_image(img);
+		return true;
 	}
+	const int cN = img->w / cW;
+	const int cH = img->h;
+
+	font->h = cH;
+	font->w = cW;
+	font->n = cN;
+	font->font = img;
 	
-	font->n = fn->w / w;
-	font->h = fn->h;
-	font->w = w;
-	font->font = fn;
-	
-	for (int y, i = 0; i < font->n; i++) {
+	for (int i = 0; i < cN; i++) {
 		
 		font->widths[i] = 0;
-		font->disp[i] = font->w;
+		font->disp[i]   = cW;
 		
-		for (y = 0; y < font->h; y++) {
+		for (int y = 0; y < cH; y++) {
 			
 			int displ, dispr;
 			Uint32 pixel;
 			Uint8 r, g, b, a;
 			
-			for (displ = 0; displ < font->w; displ++) {
-				pixel = sge_GetPixel(fn, i * font->w + displ, y);
-				SDL_GetRGBA(pixel, fn->format, &r, &g, &b, &a);
+			for (displ = 0; displ < cW; displ++) {
+				pixel = sge_GetPixel(img, i * cW + displ, y);
+				SDL_GetRGBA(pixel, img->format, &r, &g, &b, &a);
 				if (a)
 					break;
 			}
-			for (dispr = font->w - 1; dispr >= 0; dispr--) {
-				pixel = sge_GetPixel(fn, i * font->w + dispr, y);
-				SDL_GetRGBA(pixel, fn->format, &r, &g, &b, &a);
+			for (dispr = cW - 1; dispr >= 0; dispr--) {
+				pixel = sge_GetPixel(img, i * cW + dispr, y);
+				SDL_GetRGBA(pixel, img->format, &r, &g, &b, &a);
 				if (a)
 					break;
 			}
@@ -304,28 +278,23 @@ fnt_t gfx_load_font(char *fname, int w)
 			}
 		}
 	}
-	return font;
+	return false;
 }
 
-void gfx_font_free(fnt_t f)
+void gfx_font_free(void)
 {
-	_font_t	*font = (_font_t *)f;
 	gfx_free_image(font->font);
 	free(font);
 }
 
-void gfx_draw_bg(img_t p, int x, int y, int width, int height)
+void gfx_draw_bg(img_t p, int x, int y, int w, int h)
 {
 	SDL_Surface *pixbuf = (SDL_Surface *)p;
 	SDL_Rect dest, src;
-	src.x = x;
-	src.y = y;
-	src.w = width;
-	src.h = height;
-	dest.x = x;
-	dest.y = y;
-	dest.w = width;
-	dest.h = height;
+	src.x = dest.x = x;
+	src.y = dest.y = y;
+	src.w = dest.w = w;
+	src.h = dest.h = h;
 	SDL_BlitSurface(pixbuf, &src, screen, &dest);
 }
 
@@ -333,10 +302,8 @@ void gfx_draw(img_t p, int x, int y)
 {
 	SDL_Surface *pixbuf = (SDL_Surface *)p;
 	SDL_Rect dest;
-	dest.x = x;
-	dest.y = y; 
-	dest.w = pixbuf->w;
-	dest.h = pixbuf->h;
+	dest.x = x; dest.w = pixbuf->w;
+	dest.y = y; dest.h = pixbuf->h;
 	SDL_BlitSurface(pixbuf, NULL, screen, &dest);
 }
 
@@ -344,34 +311,23 @@ void gfx_draw_wh(img_t p, int x, int y, int w, int h)
 {
 	SDL_Surface *pixbuf = (SDL_Surface *)p;
 	SDL_Rect dest, src;
-	src.x = 0;
-	src.y = 0; 
-	src.w = w; 
-	src.h = h;
-	dest.x = x;
-	dest.y = y; 
-	dest.w = w; 
-	dest.h = h;
+	src.x = 0; dest.x = x;
+	src.y = 0; dest.y = y;
+	src.w = dest.w = w;
+	src.h = dest.h = h;
 	SDL_BlitSurface(pixbuf, &src, screen, &dest);
 }
 
 void gfx_clear(int x, int y, int w, int h)
 {
 	SDL_Rect dest;
-	dest.x = x;
-	dest.y = y; 
-	dest.w = w; 
-	dest.h = h;
+	dest.x = x; dest.y = y;
+	dest.w = w; dest.h = h;
 	SDL_FillRect(screen, &dest, SDL_MapRGB(screen->format, 0, 0, 0));
 }
 
 bool gfx_init(char *g_datadir)
 {
-	
-	if (TTF_Init()) {
-		fprintf(stderr, "Couldn't initialize TTF: %s\n", TTF_GetError());
-	}
-	
 	strcpy(GFX_DIR, g_datadir);
 	strcat(GFX_DIR, "gfx/");
 	
@@ -394,6 +350,7 @@ bool gfx_init(char *g_datadir)
 	sdlTexture = SDL_CreateTexture( sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H );
 	screen     = SDL_CreateRGBSurface( 0, SCREEN_W, SCREEN_H, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000 );
 	
+	gfx_clear(0, 0, SCREEN_W, SCREEN_H);
 #ifdef MAEMO
 	SDL_ShowCursor(SDL_DISABLE);
 #else
@@ -407,7 +364,16 @@ bool gfx_init(char *g_datadir)
 		SDL_SetWindowIcon( sdlWindow, icon );
 	}
 #endif
-	gfx_clear(0, 0, SCREEN_W, SCREEN_H);
+	if (TTF_Init()) {
+		fprintf(stderr, "Couldn't initialize TTF: %s\n", TTF_GetError());
+	} else {
+		char ttfpath[ PATH_MAX ];
+		strcpy(ttfpath, GFX_DIR);
+		strcat(ttfpath, "manaspc.ttf");
+		ttf = TTF_OpenFont(ttfpath, TTF_PX);
+	}
+	if (gfx_load_font("fnt.png", FONT_WIDTH))
+		return true;
 	return false;
 }
 
@@ -420,8 +386,9 @@ void gfx_update(void) {
 
 void gfx_done(void)
 {
+	TTF_CloseFont(ttf);
 	TTF_Quit();
-	//gfx_font_free(font);
+	gfx_font_free();
 }
 
 /* code from sge */
