@@ -1,5 +1,8 @@
 ## Color Lines
 
+!|<img src="https://user-images.githubusercontent.com/265758/80093355-c0c89b00-857d-11ea-8816-bf6e6709ef88.png" width="500" >
+------------ | -------------
+
 This game is a fork taken from author’s [original SVN](https://code.google.com/p/color-lines) repository and rewritten using SDL2.
 
 #### Build instructions
