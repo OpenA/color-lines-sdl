@@ -1,7 +1,16 @@
-# Color Lines classic game written with SDL.
+## Color Lines
 
-> Original Code 	https://code.google.com/p/color-lines
+This game is a fork taken from author’s [original SVN](https://code.google.com/p/color-lines) repository and rewritten using SDL2.
 
-> License   		[GNU GPL v2](http://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
-
-> Author    		[Peter Kosyh](mailto://gl00my@mail.ru "Contact gl00my@mail.ru")
+#### Build instructions
+On macOS and Linux, you can use https://brew.sh pkg manager to install the following dependencies:
+```sh
+brew install git sdl2 sdl2_mixer sdl2_image sdl2_ttf
+```
+next step:
+```sh
+git clone https://github.com/OpenA/color-lines-sdl.git
+cd color-lines-sdl
+./configure
+make
+```
