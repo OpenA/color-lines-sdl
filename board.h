@@ -19,7 +19,7 @@ enum {
 	ball_brush,
 	ball_boom,
 	ball_max,
-} ball_t;
+} __BALLTYPE__;
 
 #define COLORS_NR 7
 #define BONUSES_NR 4

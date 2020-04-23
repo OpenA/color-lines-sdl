@@ -1,5 +1,5 @@
 NAME     := color-lines
-VERSION  := 1.1
+VERSION  := 1.2
 VERTITLE := $(NAME)-$(VERSION)-$(shell uname -m)
 BUILDVER := $(head -c7 .git/FETCH_HEAD)
 COMPILER := @@CC@@

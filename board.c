@@ -12,7 +12,7 @@ enum {
 	CHECK,
 	REMOVE,
 	END
-} board_state_t;
+} __BOARDSTATE__;
 
 cell_t	move_matrix_ids[BOARD_W][BOARD_H];
 cell_t	move_matrix[BOARD_W][BOARD_H];

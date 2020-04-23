@@ -8,6 +8,7 @@ static char SAVE_PATH   [ PATH_MAX ];
 static char SCORES_PATH [ PATH_MAX ];
 static char PREFS_PATH  [ PATH_MAX ];
 
+#define GFX_UPDATE  0x321
 #define POOL_SPACE  8
 #define SCORES_X    60
 #define SCORES_Y    225
@@ -133,9 +134,7 @@ static void free_Img_for(elemen_t *target)
 
 static void draw_Volume_bar(void)
 {
-	game_lock();
 	int bar = Settings.volume ? Settings.volume * Vol.w / 256 : 0;
-	game_unlock();
 	gfx_draw_bg(bg, Vol.x, Vol.y, Vol.w, Vol.h);
 	gfx_draw(Vol.off, Vol.x, Vol.y);
 	gfx_draw_wh(Vol.on, Vol.x, Vol.y, bar, Vol.h);
@@ -152,7 +151,10 @@ static void draw_Track_title(void)
 	gfx_update();
 }
 
-static Uint32 draw_Timer_digit(Uint32 interval, void *_null)
+/* <==== Game Timer ====> */
+SDL_TimerID gameTimerId;
+
+Uint32 draw_Timer_digit(Uint32 interval, void *_)
 {
 	Settings.lastTime++;
 	
@@ -163,29 +165,18 @@ static Uint32 draw_Timer_digit(Uint32 interval, void *_null)
 	Timer.x = SCREEN_W - Timer.w;
 	
 	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
-	gfx_update();
+	status.update_needed = true;
 	
 	return interval;
 }
-
-static void go_GameTimer(bool start)
+void start_GameTimer()
 {
-	static SDL_TimerID gameTimerId;
-	
-	if (start)
-		gameTimerId = SDL_AddTimer(1000, &draw_Timer_digit, NULL);
-	else
-		SDL_RemoveTimer( gameTimerId );
+	gameTimerId = SDL_AddTimer(1e3, draw_Timer_digit, NULL);
 }
-
-static void start_GameTimer()
+void stop_GameTimer()
 {
-	go_GameTimer( true );
-}
-static void stop_GameTimer()
-{
-	go_GameTimer( false );
-}
+	SDL_RemoveTimer( gameTimerId );
+} /* <=== END ===> */
 
 static int get_word(const char *str, char *word)
 {
@@ -353,24 +344,17 @@ enum {
 	changing,
 	jumping,
 	moving,
-} effect_t;
+} __EFFECT__;
 
 typedef struct {
-	int used;
-	int draw_needed;
-	int x;
-	int y;
-	int tx;
-	int ty;
-	int effect;
-	int step;
-	int id;
-	cell_t	cell;
-	cell_t	cell_from;
-} gfx_ball_t;
+	cell_t cell, cell_from;
+	short effect, step;
+	bool reUse, reDraw;
+	int x, y, tx, ty, id;
+} ball_t;
 
-gfx_ball_t game_board[BOARD_W][BOARD_H];
-gfx_ball_t game_pool[POOL_SIZE];
+ball_t game_board[BOARD_W][BOARD_H];
+ball_t game_pool[POOL_SIZE];
 
 void draw_cell(int x, int y);
 void update_cell(int x, int y);
@@ -394,49 +378,37 @@ static int set_volume(int x);
 
 static void enable_effect(int x, int y, int effect)
 {
-	gfx_ball_t *b;
-	if (x == -1)
-		b = &game_pool[y];
-	else
-		b = &game_board[x][y];
+	ball_t *b = (x == -1 ? &game_pool[y] : &game_board[x][y]);
 	b->x = x;
 	b->y = y;
-	b->used = 1;
-	b->draw_needed = 1;
+	b->reUse  = true;
+	b->reDraw = true;
 	b->effect = effect;
-	b->step = 0;
+	b->step   = 0;
 }
 
 static void disable_effect(int x, int y)
 {
-	gfx_ball_t *b;
-	if (x == -1)
-		b = &game_pool[y];	
-	else 
-		b = &game_board[x][y];
-	b->draw_needed = 1;
+	ball_t *b = (x == -1 ? &game_pool[y] : &game_board[x][y]);
+	b->reDraw = true;
 	b->effect = 0;
 }
 
-int game_move_ball(void)
+void game_move_ball(void)
 {
 	static int x, y;
 	int tx, ty;
-	bool m, s;
-	
-	m = board_moved(&tx, &ty);
-	s = board_selected(&x, &y);
-	if (!s && !m)
-		return 0;
 
-	if (s && !game_board[x][y].effect && game_board[x][y].cell && game_board[x][y].used) {
+	bool move   = board_moved(&tx, &ty);
+	bool select = board_selected(&x, &y);
+
+	if (select && !game_board[x][y].effect && game_board[x][y].cell && game_board[x][y].reUse) {
 		enable_effect(x, y, jumping);
 		game_board[x][y].step = 0;
 	}
-	
-	if (m && !game_board[tx][ty].cell) {
-		moving_nr ++;
-		game_board[tx][ty].used = 0;
+	if (move && !game_board[tx][ty].cell) {
+		moving_nr++;
+		game_board[tx][ty].reUse = false;
 		game_board[tx][ty].cell = game_board[x][y].cell;
 		enable_effect(tx, ty, moving);
 		game_board[tx][ty].tx = tx;
@@ -445,131 +417,125 @@ int game_move_ball(void)
 		game_board[tx][ty].x = x;
 		game_board[tx][ty].y = y;
 		disable_effect(x, y);
-		game_board[x][y].draw_needed = 0;
-		game_board[x][y].used = 0;
+		game_board[x][y].reDraw = false;
+		game_board[x][y].reUse = false;
 		game_board[x][y].cell = 0;
 	}
-	return 1;
 }
 
-int game_process_pool(void)
+void game_process_pool(void)
 {
-	int rc = 0;
-	int x;
-	gfx_ball_t *b;
-	for (x = 0; x < POOL_SIZE; x++) {
-		cell_t	c;
-		b = &game_pool[x];
-		c = pool_cell(x);
-		if (c && !b->cell && !b->effect) { /* appearing */
+	for (int x = 0; x < POOL_SIZE; x++) {
+
+		cell_t  c =  pool_cell(x);
+		ball_t *b = &game_pool[x];
+
+		if (c && !b->cell && !b->effect) {
+			// appearing
 			enable_effect(-1, x, fadein);
 			b->cell = c;
-			rc ++;
-		} else if (!c && b->cell && !b->effect) { /* disappearing */
+
+		} else if (!c && b->cell && !b->effect) {
+			// disappearing
 			enable_effect(-1, x, fadeout);
-			rc ++;
 		}
 	}
-	return rc;
 }
 
-int game_process_board(void)
+void game_process_board(void)
 {
-	int rc = 0;
-	int x, y;
-	gfx_ball_t *b;
-	int fadeout_nr = 0;
-	int paint_nr = 0;
-	int boom_nr = 0;
-	for (y = 0; y < BOARD_H; y ++) {
-		for (x = 0; x < BOARD_W; x++) {
-			cell_t	c;
-			b = &game_board[x][y];
-			c = board_cell(x, y);
-			if (c && !b->cell && !b->effect) { /* appearing */
+	unsigned short play_snd = 0;
+
+	for (int y = 0; y < BOARD_H; y ++) {
+		for (int x = 0; x < BOARD_W; x++) {
+
+			cell_t  c =  board_cell(x, y);
+			ball_t *b = &game_board[x][y];
+
+			if (c && !b->cell && !b->effect) {
+				// appearing
 				enable_effect(x, y, fadein);
 				b->cell = c;
-				rc ++;
-			} else if (c && b->cell && c != b->cell && !b->effect){
-//				paint_nr ++;
+
+			} else if (c && b->cell && c != b->cell && !b->effect) {
+				// staging
 				enable_effect(x, y, changing);
 				b->cell_from = b->cell;
 				b->cell = c;
-				rc ++;
-			} else if (!c && b->cell && (!b->effect || b->effect == jumping)) { /* disappearing */
-				
-				if (b->cell == ball_boom) {
-//					snd_play(SND_BOOM, 1);
-					boom_nr ++;
-				} else if (b->cell == ball_brush) {
-//					snd_play(SND_PAINT, 1);	
-					paint_nr ++;
-				} else	
-					fadeout_nr ++;	
+
+			} else if (!c && b->cell && (!b->effect || b->effect == jumping)) {
+				// disappearing
 				enable_effect(x, y, fadeout);
-				rc ++;
+				if (b->cell == ball_boom ) {
+					play_snd = SND_BOOM;
+				} else
+				if (b->cell == ball_brush) {
+					play_snd = SND_PAINT;
+				} else
+				if (play_snd == 0) {
+					play_snd = SND_FADEOUT;
+				}
 			}
 		}
 	}
-	if (boom_nr)
-		snd_play(SND_BOOM, 1);
-	else if (paint_nr)
-		snd_play(SND_PAINT, 1);
-	else if (fadeout_nr)
-		snd_play(SND_FADEOUT, 1);
-	return rc;
+	if (play_snd)
+		snd_play(play_snd, 1);
 }
+
 void game_init(void)
 {
-	memset(game_board, 0, sizeof(game_board));
-	memset(game_pool, 0, sizeof(game_pool));
+	memset(game_board, 0, sizeof( game_board ));
+	memset(game_pool , 0, sizeof( game_pool  ));
+
 	for (int y = 0; y < BOARD_H; y ++) {
 		for (int x = 0; x < BOARD_W; x++) {
-			game_board[x][y].draw_needed = 0;
+			game_board[x][y].reDraw = false;
 		}
 	}
 }
 
-int game_display_board(void)
+unsigned short game_display_board(void)
 {
-	int x, y, tmpx, tmpy, x1, y1;
-	int rc = 0, dx, dy;
-	int dist;
-	for (y = 0; y < BOARD_H; y ++) {
-		for (x = 0; x < BOARD_W; x++) {
-			gfx_ball_t *b;
+	unsigned short out = 0;
+
+	int tmpx, tmpy, x1, y1, dx, dy, dist;
+	ball_t *b;
+
+	for (int y = 0; y < BOARD_H; y++) {
+		for (int x = 0; x < BOARD_W; x++) {
+
 			b = &game_board[x][y];
-			if (!b->draw_needed)	
+
+			if (!b->reDraw)	
 				continue;
-//			fprintf(stderr,"In:x:%d y:%d c:%d(%d)\n", x, y, b->cell, b->effect);	
-			rc ++;	
+
+			out++;
+
 			switch (b->effect) {
 			case 0:
-				rc --;
+				out--;
 				draw_cell(x, y);
-				if (b->used)
-					draw_ball(b->cell - 1, x, y); 
-				else
-					b->cell = 0;	
+				if (b->reUse) {
+					draw_ball(b->cell - 1, x, y);
+				} else
+					b->cell = 0;
 				update_cell(x, y);
-				b->draw_needed = 0;
+				b->reDraw = false;
 				break;
 			case fadein:
-//				if (moving_nr)
-//					break;
-				rc --;
-				if (board_path(b->x, b->y))
-					break;
-				draw_cell(b->x, b->y);
-				draw_ball_size(b->cell - 1, b->x, b->y, b->step); 
-				b->step ++;
-				if (b->step >= SIZE_STEPS) {
-					disable_effect(x, y);
+				out--;
+				if (!board_path(b->x, b->y)) {
+					draw_cell(b->x, b->y);
+					draw_ball_size(b->cell - 1, b->x, b->y, b->step); 
+					b->step ++;
+					if (b->step >= SIZE_STEPS) {
+						disable_effect(x, y);
+					}
+					update_cell(b->x, b->y);
 				}
-				update_cell(b->x, b->y);
 				break;
 			case jumping:
-				rc --;
+				out--;
 				draw_cell(b->x, b->y);
 				dist = b->step % (3*JUMP_STEPS);
 				if (dist < JUMP_STEPS)
@@ -580,38 +546,28 @@ int game_display_board(void)
 					draw_ball_offset(b->cell - 1, b->x, b->y, 0, 2*JUMP_STEPS - dist);
 				else if (dist < 2*JUMP_STEPS + 10 && dist >= 2*JUMP_STEPS + 5)
 					draw_ball_offset(b->cell - 1, b->x, b->y, 0, dist - 2*JUMP_STEPS - 10);
-				b->step ++;
+				b->step++;
 				update_cell(b->x, b->y);
 				if (dist == 2 * JUMP_STEPS && (!board_selected(&tmpx, &tmpy) || tmpx != b->x || tmpy != b->y)) {
 					disable_effect(x, y);
 				} else if (b->step >= 3*JUMP_STEPS * 19 + 2*JUMP_STEPS) {
-					//b->step = 0;
 					disable_effect(x, y);
 					board_select(-1, -1);
 				}
 				break;
 			case moving:
-//				rc --;
 				x1 = b->x;
 				y1 = b->y;
 				draw_cell(b->x, b->y);
 				board_follow_path(b->x, b->y, &tmpx, &tmpy, b->id);
-				//fprintf(stderr,"%d %d\n", tmpx, tmpy);
 				draw_cell(tmpx, tmpy);
-				
 				dist = abs(b->tx - b->x) + abs(b->ty - b->y);
-				
 				if (dist <= 2) {
-					int d = (BALL_STEP * (TILE_WIDTH * dist - b->step)) / (TILE_WIDTH + TILE_WIDTH);
-					if (!d)
-						d = 1;
-					b->step += d;
+					b->step += (BALL_STEP * (TILE_WIDTH * dist - b->step)) / (TILE_WIDTH + TILE_WIDTH) ?: 1;
 				} else
 					b->step += BALL_STEP;
-					
 				dx = (tmpx - b->x) * b->step;
 				dy = (tmpy - b->y) * b->step;
-				
 				if (abs(dx) >= TILE_WIDTH || abs(dy) >= TILE_HEIGHT) {
 					board_clear_path(b->x, b->y);
 					b->x = tmpx;
@@ -620,16 +576,13 @@ int game_display_board(void)
 					b->step = 0;
 				}
 				draw_ball_offset(b->cell - 1, b->x, b->y, dx, dy); 
-				
-				update_cells(x1, y1, tmpx, tmpy); 
-				//fprintf(stderr,"%d %d (%d %d)\n", tmpx, tmpy, dx, dy);
-
+				update_cells(x1, y1, tmpx, tmpy);
 				if (b->x == b->tx && b->y == b->ty) {
-					moving_nr --;
+					moving_nr--;
 					board_clear_path(b->x, b->y);
-					b->draw_needed = 1;
+					b->reDraw = true;
 					b->effect = 0;
-					b->used = 1;
+					b->reUse  = true;
 				}
 				break;
 			case changing:
@@ -637,86 +590,72 @@ int game_display_board(void)
 				draw_ball_alpha(b->cell_from - 1, b->x, b->y, 
 					ALPHA_STEPS - b->step - 1); 
 				draw_ball_alpha(b->cell - 1, b->x, b->y, b->step); 
-				b->step ++;
+				b->step++;
 				if (b->step >= ALPHA_STEPS - 1) {
 					disable_effect(x, y);
-//					b->used = 1;
-				}
-				update_cell(b->x, b->y);			
-				break;		
-			case fadeout:
-				//rc --;
-			//	if (moving_nr /*&& (b->step != ALPHA_STEPS -1)*/)
-			//		break;
-				draw_cell(b->x, b->y);
-				draw_ball_alpha(b->cell - 1, b->x, b->y, ALPHA_STEPS - b->step - 1); 
-				b->step ++;
-				if (b->step == ALPHA_STEPS) {
-					disable_effect(x, y);
-					b->used = 0;
-					b->cell = 0;
 				}
 				update_cell(b->x, b->y);
 				break;
-			}	
-//			fprintf(stderr,"Out:x:%d y:%d c:%d(%d)\n", x, y, b->cell, b->effect);	
-
+			case fadeout:
+				draw_cell(b->x, b->y);
+				draw_ball_alpha(b->cell - 1, b->x, b->y, ALPHA_STEPS - b->step - 1); 
+				b->step++;
+				if (b->step == ALPHA_STEPS) {
+					disable_effect(x, y);
+					b->reUse = false;
+					b->cell  = 0;
+				}
+				update_cell(b->x, b->y);
+				break;
+			}
 		}
 	}
-//	update_all();
-	return rc;
+	return out;
 }
 
-int game_display_pool(void)
+void game_display_pool(void)
 {
-	int x;
-	int rc = 0;
-	for (x = 0; x < POOL_SIZE; x++) {
-		gfx_ball_t *b;
+	ball_t *b;
+
+	for (int x = 0; x < POOL_SIZE; x++) {
+
 		b = &game_pool[x];
-		if (!b->draw_needed)
+
+		if (!b->reDraw)
 			continue;
-		rc ++;	
+
 		switch (b->effect) {
 		case 0:
-			rc --;
 			draw_cell(-1, x);
-			if (b->used)
+			if (b->reUse)
 				draw_ball(b->cell - 1, -1, x); 
 			else
 				b->cell = 0;
 			update_cell(-1, x);
-			b->draw_needed = 0;
+			b->reDraw = false;
 			break;
 		case fadein:
-//			if (moving_nr)
-//				break;
 			draw_cell(-1, b->y);
 			draw_ball_size(b->cell - 1, -1, b->y, b->step); 
-			b->step ++;
+			b->step++;
 			if (b->step >= SIZE_STEPS) {
 				disable_effect(-1, x);
 			}
 			update_cell(-1, x);
 			break;
 		case fadeout:
-			rc --;
-//			if (moving_nr)
-//				break;
 			draw_cell(-1, b->y);
 			draw_ball_alpha(b->cell - 1, -1, b->y, ALPHA_STEPS - b->step - 1); 
 			b->step ++;
 			if (b->step == ALPHA_STEPS) {
 				disable_effect(-1, x);
-				b->used = 0;
+				b->reUse = false;
 				b->cell = 0;
 			}
 			update_cell(-1, b->y);
 			break;
 		}	
 	}
-	update_all();
-	return rc;
 }
 
 bool load_balls(void)
@@ -828,11 +767,11 @@ static int set_volume(int x)
 	int disp = x < Music.w ? 0 : x > (Vol.w + Music.w) ? Vol.w : x - Music.w;
 	game_lock();
 	Settings.volume = (256 * disp) / Vol.w;
-	game_unlock();
 	if (!Music.hook)
 		snd_volume(Settings.volume);
 	draw_Volume_bar();
 	status.store_prefs = true;
+	game_unlock();
 	return disp + Music.w;
 }
 
@@ -888,14 +827,17 @@ void mark_cells_dirty(int x1, int y1, int x2, int y2)
 	x = x1;
 	for (; y1 <= y2; y1++) {
 		for (x1 = x; x1 <= x2; x1++)
-			game_board[x1][y1].draw_needed = 1;
+			game_board[x1][y1].reDraw = true;
 	}
 }
 
 void update_all(void)
 {
-	if (status.update_needed)
-		gfx_update();
+	if (status.update_needed) {
+		SDL_Event upd_event;
+		upd_event.type = GFX_UPDATE;
+		SDL_PushEvent(&upd_event);
+	}
 	status.update_needed = false;
 }
 
@@ -949,7 +891,7 @@ static void fetch_game_board(void)
 			if (game_board[x][y].cell) {
 				game_board[x][y].x = x;
 				game_board[x][y].y = y;
-				game_board[x][y].used = 1;
+				game_board[x][y].reUse = true;
 			}
 		}
 	}
@@ -960,7 +902,7 @@ static void draw_board(void)
 	for (int x, y = 0; y < BOARD_H; y ++) {
 		for (x = 0; x < BOARD_W; x++) {
 			draw_cell(x, y);
-			if (game_board[x][y].cell && game_board[x][y].used) {
+			if (game_board[x][y].cell && game_board[x][y].reUse) {
 				draw_ball(game_board[x][y].cell - 1, x, y); 
 			}
 		}
@@ -988,6 +930,7 @@ Uint32 gameHandler(Uint32 interval, void *_)
 					} else {
 						snd_play(SND_GAMEOVER, 1);
 					}
+					status.update_needed = true;
 					remove(SAVE_PATH);
 				}
 			}
@@ -1020,6 +963,9 @@ static void game_loop() {
 				}
 			}
 			switch (event.type) {
+			case GFX_UPDATE:
+				gfx_update();
+				break;
 			case SDL_QUIT: // Quit the game
 				game_lock();
 				status.running = false;
@@ -1111,7 +1057,7 @@ static void show_score(void)
 			gfx_draw_bg(bg, _min(Score.x, x), SCORE_Y, _max(Score.w, w), h);
 			if ((timer / BONUS_BLINKS) & 1)
 				gfx_draw_text(Score.name, x, SCORE_Y, 0);
-			gfx_update();
+			status.update_needed = true;
 			Score.x = x;
 			Score.w = w;
 			if (!timer) {
@@ -1124,7 +1070,7 @@ static void show_score(void)
 			x = SCORE_X + ((SCORE_W - w) / 2);
 			gfx_draw_bg(bg, _min(Score.x, x), SCORE_Y, _max(Score.w, w), h);
 			gfx_draw_text(Score.name, x, SCORE_Y, 0);
-			gfx_update();
+			status.update_needed = true;
 			Score.x = x;
 			Score.w = w;
 			if (cur_score != new_score) {
@@ -1211,26 +1157,26 @@ static void show_hiscores(void)
 		w = gfx_chars_width(buff);
 		gfx_draw_text(buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h, 0);
 	}
-	gfx_update();
 }
 
 static void game_message(const char *str, bool board)
 {
 	int w = gfx_chars_width(str);
 	int h = gfx_font_height();
-	int x = (board ? BOARD_X + (BOARD_WIDTH  - w) : (SCREEN_W - w)) / 2;
-	int y = (board ? BOARD_Y + (BOARD_HEIGHT - h) : (SCREEN_H - h)) / 2;
+	int x = board ? BOARD_X + (BOARD_WIDTH  - w) / 2 : (SCREEN_W - w) / 2;
+	int y = board ? BOARD_Y + (BOARD_HEIGHT - h) / 2 : (SCREEN_H - h) / 2;
 	gfx_draw_text(str, x, y, 0);
-	gfx_update();
 }
 
 bool load_game_ui(void)
 {
-	game_message("Loading...", false);
-
 	if(!(bg      = gfx_load_image("bg.png"     ,false))) return true;
 	if(!(cell    = gfx_load_image("cell.png"   , true))) return true;
 	if(!(pb_logo = gfx_load_image("pb_logo.png", true))) return true;
+	
+	gfx_draw_bg(bg, 0, 0, SCREEN_W, SCREEN_H);
+	game_message("Loading...", false);
+	gfx_update();
 
 	return load_balls()
 		|| load_Img_for( &Music )
@@ -1273,9 +1219,7 @@ static void game_prep(void)
 	Timer.x = SCREEN_W - Timer.w;
 	Timer.y = SCREEN_H - Timer.h;
 	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
-	
-	show_hiscores();
-	
+
 	Music.temp = rand() % TRACKS_COUNT;
 	  Vol.temp = Settings.volume * Vol.w / 256 + Music.w;
 	
@@ -1314,9 +1258,9 @@ static void game_restart(bool clean)
 	}
 	game_init();
 	draw_board();
-	gfx_update();
 	show_score();
 	show_hiscores();
+	gfx_update();
 	start_GameTimer();
 	game_unlock();
 }
