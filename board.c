@@ -17,8 +17,8 @@ enum {
 cell_t	move_matrix_ids[BOARD_W][BOARD_H];
 cell_t	move_matrix[BOARD_W][BOARD_H];
 
-int	ball_x, ball_to_x;
-int	ball_y, ball_to_y;
+int	ball_x = -1, ball_to_x;
+int	ball_y = -1, ball_to_y;
 
 static struct __SESS__ {
 	cell_t	desk[BOARD_W][BOARD_H];
