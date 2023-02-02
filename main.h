@@ -31,4 +31,4 @@
 #define SCREEN_H 480
 
 extern void track_switch(void);
-char GAME_DIR[ PATH_MAX ];
+extern char GAME_DIR[ PATH_MAX ];

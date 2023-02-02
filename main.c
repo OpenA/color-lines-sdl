@@ -7,6 +7,7 @@
 static char SAVE_PATH   [ PATH_MAX ];
 static char SCORES_PATH [ PATH_MAX ];
 static char PREFS_PATH  [ PATH_MAX ];
+char        GAME_DIR    [ PATH_MAX ];
 
 #define GFX_UPDATE  0x321
 #define POOL_SPACE  8
