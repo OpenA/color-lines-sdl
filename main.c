@@ -75,18 +75,6 @@ static elemen_t Loop    = { .name = "loop" };
 static elemen_t Info    = { .name = "info" };
 static elemen_t Vol     = { .name = "vol" };
 
-SDL_mutex *game_mutex;
-
-void game_lock(void)
-{
-	SDL_mutexP(game_mutex);
-}
-
-void game_unlock(void)
-{
-	SDL_mutexV(game_mutex);
-}
-
 int   moving_nr = 0;
 img_t pb_logo = NULL;
 img_t bg_saved = NULL;
@@ -304,7 +292,6 @@ static const char *last_text = NULL;
 static void show_info_window(void)
 {
 	last_text = cur_text;
-	game_lock();
 	if (!bg_saved && !(
 		 bg_saved = gfx_grab_screen(
 			BOARD_X - TILE_WIDTH - POOL_SPACE,
@@ -320,20 +307,17 @@ static void show_info_window(void)
 		cur_text = game_print(cur_text);
 		draw_Button_for(&Info, (Info.hook = true));
 	}
-	game_unlock();
 }
 
 static void hide_info_window(void)
 {
 	cur_text = last_text ?: info_text;
-	game_lock();
 	gfx_draw(bg_saved, BOARD_X - TILE_WIDTH - POOL_SPACE, BOARD_Y);
 	gfx_update();
 	bg_saved = 0;
 	gfx_free_image(bg_saved);
 	draw_Button_for(&Info, (Info.hook = false));
 	start_GameTimer();
-	game_unlock();
 }
 
 static int game_hiscores[HISCORES_NR] = { 50, 40, 30, 20, 10 };
@@ -765,13 +749,11 @@ void track_switch(void)
 static int set_volume(int x)
 {
 	int disp = x < Music.w ? 0 : x > (Vol.w + Music.w) ? Vol.w : x - Music.w;
-	game_lock();
 	Settings.volume = (256 * disp) / Vol.w;
 	if (!Music.hook)
 		snd_volume(Settings.volume);
 	draw_Volume_bar();
 	status.store_prefs = true;
-	game_unlock();
 	return disp + Music.w;
 }
 
@@ -913,7 +895,6 @@ Uint32 gameHandler(Uint32 interval, void *_)
 {
 	if (status.running) {
 		if (!Info.hook) {
-			game_lock();
 			game_move_ball();
 			game_process_board();
 			game_process_pool();
@@ -935,7 +916,6 @@ Uint32 gameHandler(Uint32 interval, void *_)
 				}
 			}
 			update_all();
-			game_unlock();
 		}
 	} else
 		return 0;
@@ -957,9 +937,7 @@ static void game_loop() {
 			int y = event.button.y;
 			if (event.key.state == SDL_PRESSED) {
 				if (event.key.keysym.sym == SDLK_ESCAPE) {
-					game_lock();
 					status.running = false;
-					game_unlock();
 				}
 			}
 			switch (event.type) {
@@ -967,9 +945,7 @@ static void game_loop() {
 				gfx_update();
 				break;
 			case SDL_QUIT: // Quit the game
-				game_lock();
 				status.running = false;
-				game_unlock();
 				break;
 			case SDL_MOUSEMOTION:
 				Board_touch = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
@@ -1199,7 +1175,6 @@ void free_game_ui(void) {
 static void game_prep(void)
 {
 	game_loadhiscores(SCORES_PATH);
-	game_lock();
 	
 	srand(time(NULL));
 	gfx_draw_bg(bg, 0, 0, SCREEN_W, SCREEN_H);
@@ -1234,7 +1209,6 @@ static void game_prep(void)
 	draw_Volume_bar();
 	if(Track.name[0])
 		draw_Track_title();
-	game_unlock();
 	
 	game_restart(
 		board_load(SAVE_PATH)
@@ -1243,7 +1217,6 @@ static void game_prep(void)
 
 static void game_restart(bool clean)
 {
-	game_lock();
 	stop_GameTimer();
 	status.update_needed = status.game_over = false;
 	cur_score = -1;
@@ -1262,7 +1235,6 @@ static void game_restart(bool clean)
 	show_hiscores();
 	gfx_update();
 	start_GameTimer();
-	game_unlock();
 }
 
 #if defined WINDOWS
@@ -1341,10 +1313,6 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "Couldn't initialize SDL: %s\n", SDL_GetError());
 		return -1;
 	}
-	if (!(game_mutex = SDL_CreateMutex())) {
-		fprintf(stderr, "Couldn't create mutex: %s\n", SDL_GetError());
-		return -1;
-	}
 	// Initialize Graphic and UI
 	if (gfx_init() || load_game_ui()) {
 		free_game_ui();
@@ -1363,13 +1331,10 @@ int main(int argc, char **argv) {
 	game_prep();
 	game_loop();
 	/* END GAME CODE HERE */
-	game_lock();
 	stop_GameTimer();
 	free_game_ui();
-	game_unlock();
 	snd_done();
 	gfx_done();
-	SDL_DestroyMutex(game_mutex);
 	if (status.store_prefs)
 		game_saveprefs(PREFS_PATH);
 	SDL_Quit();

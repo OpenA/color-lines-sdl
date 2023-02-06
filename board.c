@@ -48,18 +48,6 @@ typedef struct {
 
 flush_t	*flushes[BOARD_W * BOARD_H];
 
-SDL_mutex *board_mutex;
-
-void board_lock(void)
-{
-	SDL_mutexP(board_mutex);
-}
-
-void board_unlock(void)
-{
-	SDL_mutexV(board_mutex);
-}
-
 static cell_t cell_get(int x, int y)
 {
 	if (x < 0 || x >= BOARD_W)
@@ -71,7 +59,6 @@ static cell_t cell_get(int x, int y)
 
 bool board_selected(int *x, int *y)
 {
-	board_lock();
 	bool selected = !!cell_get(ball_x, ball_y);
 	//fprintf(stderr,"Board selected: %d %d\n", ball_x, ball_y);
 	if ( selected ) {
@@ -80,13 +67,11 @@ bool board_selected(int *x, int *y)
 		if (y)
 			*y = ball_y;
 	}
-	board_unlock();
 	return selected;
 }
 
 bool board_moved(int *x, int *y)
 {
-	board_lock();
 	bool moved = ball_to_x > -1 && ball_to_y > -1 && board_state == CHECK;
 	//fprintf(stderr,"Ball moved: %d %d\n", ball_to_x, ball_to_y);
 	if ( moved ) {
@@ -95,16 +80,11 @@ bool board_moved(int *x, int *y)
 		if (y)
 			*y = ball_to_y;
 	}
-	board_unlock();
 	return moved;
 }
 
 void board_init(void)
 {
-	if (board_mutex)
-		SDL_DestroyMutex(board_mutex);
-	
-	board_mutex = SDL_CreateMutex();
 	srand(time(NULL));
 	
 	Session.score      = flush_nr = 0;
@@ -132,18 +112,14 @@ void board_init(void)
 cell_t board_cell(int x, int y)
 {
 	cell_t cell;
-	board_lock();
 	cell = cell_get(x, y);
-	board_unlock();
 	return cell;
 }
 
 cell_t pool_cell(int x)
 {
 	cell_t cell;
-	board_lock();
 	cell = x < Session.iball || x >= POOL_SIZE ? 0 : Session.ball_pool[x];
-	board_unlock();
 	return cell;
 }
 
@@ -302,27 +278,21 @@ static bool _board_path(int x, int y)
 bool board_path(int x, int y)
 {
 	bool rc;
-	board_lock();
 	rc = _board_path(x, y);
-	board_unlock();
 	return rc;
 }
 
 void board_clear_path(int x, int y)
 {
-	board_lock();
 	move_matrix[x][y] = move_matrix[x][y] & ~FL_PATH;
-	board_unlock();
 }
 
 bool board_follow_path(int x, int y, int *ox, int *oy, int id)
 {
 	int num;
 	int a,v;
-	board_lock();
 	num  = move_matrix[x][y];
 	if (!(num & FL_PATH)) {
-		board_unlock();
 		return false;
 	}
 	num &= ~FL_PATH;
@@ -331,31 +301,26 @@ bool board_follow_path(int x, int y, int *ox, int *oy, int id)
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x + 1; *oy = y;
-		board_unlock();
 		return true;
 	}
 	a = move_cell(x, y + 1, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x; *oy = y + 1;
-		board_unlock();
 		return true;
 	}
 	a = move_cell(x -1 , y, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x - 1; *oy = y;
-		board_unlock();
 		return true;
 	}
 	a = move_cell(x, y - 1, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x; *oy = y - 1;
-		board_unlock();
 		return true;
 	}
-	board_unlock();
 //	fprintf(stderr,"No move %d:%d %d\n", id, x , y);
 	*ox = x;
 	*oy = y;
@@ -567,12 +532,10 @@ static bool flushes_remove(void)
 
 void board_fill_pool(void)
 {
-//	board_lock();
 	for (int i = 0; i < POOL_SIZE; i++) {
 		Session.ball_pool[i] = get_rand_cell(); //(rand() % (ball_max - 1)) + 1;
 	}
 	Session.iball = 0;
-//	board_unlock();
 }
 
 static int scan_hline(int x, int y)
@@ -871,9 +834,7 @@ bool board_fill(int *ox, int *oy)
 	int pos;
 	cell_t *cell;
 
-//	board_lock();
 	if (Session.free_cells < 1) {
-//		board_unlock();
 		return true;
 	}
 //	for (int i = 0; i < POOL_SIZE; i++) {
@@ -892,7 +853,6 @@ bool board_fill(int *ox, int *oy)
 //		board_check_row(x, y);
 //		flushes_remove();
 //	}
-//	board_unlock();
 //	if (Session.iball == POOL_SIZE) {
 //		Session.iball = 0;
 //		return false;
@@ -926,10 +886,8 @@ void board_display(void)
 bool board_select(int x, int y)
 {
 	if (x == -1 && y == -1) { /* special case */
-		board_lock();
 		ball_x = -1;
 		ball_y = -1;
-		board_unlock();	
 		return false;
 	}
 	if (x < 0 || x >= BOARD_W)
@@ -937,11 +895,8 @@ bool board_select(int x, int y)
 		
 	if (y < 0 || y >= BOARD_H)
 		return false;
-		
-	board_lock();
 	
 //	if (board_state != IDLE) {
-//		board_unlock();
 //		return false;
 //	}
 	
@@ -952,17 +907,14 @@ bool board_select(int x, int y)
 		ball_y = y;
 //		ball_to_x = -1;
 //		ball_to_y = -1;
-		board_unlock();
 		return false;
 	}
 	
 	if (!cell_get(ball_x, ball_y)) { /* nothing to move */
-		board_unlock();
 		return false;
 	}
 
 	if (board_state != IDLE) {
-		board_unlock();
 		return false;
 	}
 
@@ -971,16 +923,12 @@ bool board_select(int x, int y)
 	board_state = MOVING;
 	
 //	if (!board_move(ball_x, ball_y, x, y)) {
-//		board_unlock();
 //		return false;
 //	}
 //	board_check_row(x, y);
 //	if (flushes_remove()) {
-//		board_unlock();
 //		return true;
 //	}
-	
-	board_unlock();
 	return true;
 }
 
@@ -989,7 +937,6 @@ void board_logic(void)
 	static bool rc;
 	static int x, y;
 	bool fl;
-	board_lock();
 //	fprintf(stderr,"state=%d\n", board_state);
 	switch(board_state) {
 	case IDLE:
@@ -1054,24 +1001,19 @@ void board_logic(void)
 //		fprintf(stderr, "Game Over\n");
 		break;
 	}
-	board_unlock();
 }
 
 int board_score()
 {
 	int s;
-	board_lock();
 	s = Session.score;
-	board_unlock();
 	return s;
 }
 
 int board_score_mul()
 {
 	int s;
-	board_lock();
 	s = Session.score_mul - 1;
-	board_unlock();
 	return s;
 }
 
@@ -1092,10 +1034,8 @@ bool board_save(const char *path)
 	
 	if (!board_running())
 		return true;
-	
-	board_lock();
+
 	fwrite(&Session, sizeof(struct __SESS__), 1, file);
-	board_unlock();
 	fclose(file);
 	
 	return false;
@@ -1108,10 +1048,8 @@ bool board_load(const char *path)
 	if (file == NULL)
 		return true;
 
-	board_lock();
 	fread(&Session, sizeof(struct __SESS__), 1, file);
 	board_state = IDLE;
-	board_unlock();
 	fclose(file);
 
 	return false;

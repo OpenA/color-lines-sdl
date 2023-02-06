@@ -1,5 +1,4 @@
 #include <SDL.h>
-#include <SDL_thread.h>
 
 #include <stdbool.h>
 #include <string.h>

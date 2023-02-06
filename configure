@@ -5,13 +5,13 @@ INSTDIR=/opt
 
 for i in "$@"; do
   case $i in
-    -instdir=*)
+    --instdir=*)
       INSTDIR="${i#*=}"
       ;;
-    -cflags=*)
+    --cflags=*)
       CFLAGS="${i#*=}"
       ;;
-    -cc=*)
+    --cc=*)
       CC=`which ${i#*=}`
       ;;
     *)
