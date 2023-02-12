@@ -1,6 +1,7 @@
 .vscode/
-dist
-build/*
+dist/
+build/
 Makefile
 color-lines
 color-lines.desktop
+*.o

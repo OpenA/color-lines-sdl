@@ -1,18 +1,4 @@
-#include "main.h"
 #include "board.h"
-
-#define FL_PATH 0x80
-#define BONUS_PCNT 5
-
-enum {
-	IDLE = 0,
-	MOVING,
-	FILL_POOL,
-	FILL_BOARD,
-	CHECK,
-	REMOVE,
-	END
-} __BOARDSTATE__;
 
 cell_t	move_matrix_ids[BOARD_W][BOARD_H];
 cell_t	move_matrix[BOARD_W][BOARD_H];
@@ -32,7 +18,7 @@ static struct __SESS__ {
 } Session;
 
 static unsigned int flush_nr;
-static unsigned int board_state;
+static stat_b board_stat;
 
 typedef struct {
 	int x;
@@ -72,7 +58,7 @@ bool board_selected(int *x, int *y)
 
 bool board_moved(int *x, int *y)
 {
-	bool moved = ball_to_x > -1 && ball_to_y > -1 && board_state == CHECK;
+	bool moved = ball_to_x > -1 && ball_to_y > -1 && board_stat == CHECK;
 	//fprintf(stderr,"Ball moved: %d %d\n", ball_to_x, ball_to_y);
 	if ( moved ) {
 		if (x)
@@ -85,12 +71,10 @@ bool board_moved(int *x, int *y)
 
 void board_init(void)
 {
-	srand(time(NULL));
-	
 	Session.score      = flush_nr = 0;
 	Session.score_mul  = 1;
 	Session.free_cells = BOARD_W * BOARD_H;
-	
+
 	memset(Session.desk,      0, sizeof(Session.desk));
 	memset(Session.ball_pool, 0, sizeof(Session.ball_pool));
 	memset(flushes,           0, sizeof(flushes));
@@ -106,7 +90,7 @@ void board_init(void)
 	board_fill(NULL, NULL);
 	board_fill_pool();
 	
-	board_state = IDLE;
+	board_stat = IDLE;
 }
 
 cell_t board_cell(int x, int y)
@@ -896,7 +880,7 @@ bool board_select(int x, int y)
 	if (y < 0 || y >= BOARD_H)
 		return false;
 	
-//	if (board_state != IDLE) {
+//	if (board_stat != IDLE) {
 //		return false;
 //	}
 	
@@ -914,13 +898,13 @@ bool board_select(int x, int y)
 		return false;
 	}
 
-	if (board_state != IDLE) {
+	if (board_stat != IDLE) {
 		return false;
 	}
 
 	ball_to_x = x;
 	ball_to_y = y;
-	board_state = MOVING;
+	board_stat = MOVING;
 	
 //	if (!board_move(ball_x, ball_y, x, y)) {
 //		return false;
@@ -932,36 +916,36 @@ bool board_select(int x, int y)
 	return true;
 }
 
-void board_logic(void)
+stat_b board_logic()
 {
 	static bool rc;
 	static int x, y;
 	bool fl;
-//	fprintf(stderr,"state=%d\n", board_state);
-	switch(board_state) {
+//	fprintf(stderr,"state=%d\n", board_stat);
+	switch(board_stat) {
 	case IDLE:
 		if (!Session.free_cells)
-			board_state = END;
+			board_stat = END;
 		else if (Session.free_cells == (BOARD_W * BOARD_H))
-			board_state = FILL_BOARD;
+			board_stat = FILL_BOARD;
 		break;
 	case MOVING:
 		if ((rc = board_move(ball_x, ball_y, ball_to_x, ball_to_y))) {
-			board_state = CHECK;
+			board_stat = CHECK;
 //			x = ball_to_x;
 //			y = ball_to_y;
 			ball_x = -1;
 			ball_y = -1;
 		} else
-			board_state = IDLE;
+			board_stat = IDLE;
 		break;
 	case FILL_POOL:
 		board_fill_pool();
-		board_state = (Session.free_cells == BOARD_W * BOARD_H) ? FILL_BOARD : IDLE;
+		board_stat = (Session.free_cells == BOARD_W * BOARD_H) ? FILL_BOARD : IDLE;
 //		Session.score_mul = 1;
 		break;
 	case FILL_BOARD:
-		board_state = (rc = board_fill(&x, &y)) ? END : CHECK;
+		board_stat = (rc = board_fill(&x, &y)) ? END : CHECK;
 //		Session.score_mul = 1; /* multiply == 1 */	
 		break;
 	case CHECK:
@@ -977,11 +961,11 @@ void board_logic(void)
 		ball_to_x  = -1;
 		ball_to_y  = -1;
 		if (board_check(x, y))
-			board_state = REMOVE;
+			board_stat = REMOVE;
 		else if (rc || (POOL_SIZE - Session.iball) > 0)
-			board_state = FILL_BOARD;
+			board_stat = FILL_BOARD;
 		else
-			board_state = FILL_POOL;
+			board_stat = FILL_POOL;
 		break;
 	case REMOVE:
 		fl = flushes_remove();
@@ -991,16 +975,17 @@ void board_logic(void)
 //		fprintf(stderr, "Score: %d (+%d * %d)\n", Session.score, Session.score_delta, Session.score_mul);
 //		show_score(Session.score);
 		if (rc)
-			board_state = IDLE;
+			board_stat = IDLE;
 		else if ((POOL_SIZE - Session.iball) > 0)
-			board_state = FILL_BOARD;
+			board_stat = FILL_BOARD;
 		else
-			board_state = FILL_POOL;
+			board_stat = FILL_POOL;
 		break;
 	case END:
 //		fprintf(stderr, "Game Over\n");
 		break;
 	}
+	return board_stat;
 }
 
 int board_score()
@@ -1019,38 +1004,13 @@ int board_score_mul()
 
 bool board_running(void)
 {
-	return board_state != END;
+	return board_stat != END;
 }
 
-bool board_save(const char *path)
-{
-	FILE * file = fopen(path, "wb");
-	
-	if (file == NULL)
-		return true;
-	
-	while ((board_state != IDLE) && board_running())
-		board_logic();
-	
-	if (!board_running())
-		return true;
-
-	fwrite(&Session, sizeof(struct __SESS__), 1, file);
-	fclose(file);
-	
-	return false;
-}
-
-bool board_load(const char *path)
-{
-	FILE * file = fopen(path, "rb");
-
-	if (file == NULL)
-		return true;
-
-	fread(&Session, sizeof(struct __SESS__), 1, file);
-	board_state = IDLE;
-	fclose(file);
-
-	return false;
+bool is_board_finally() {
+	stat_b bstat;
+	do {
+		bstat = board_logic();
+	} while (bstat != IDLE && bstat != END);
+	return bstat == END;
 }

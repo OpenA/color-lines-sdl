@@ -5,6 +5,16 @@ INSTDIR=/opt
 
 for i in "$@"; do
   case $i in
+    --help | -h)
+      echo "  --help, -h       show this help"
+      echo "  --instdir=*      change install prefix"
+      echo "  --cc=*           set compiler"
+      echo "  --cflags=*       set compiler flags\n"
+      echo "  [ CFLAGS special attributes ]"
+      echo "  -DCL_IMG_DIR=*   static path for game images"
+      echo "  -DCL_SND_DIR=*   static path for game sounds"
+      exit
+      ;;
     --instdir=*)
       INSTDIR="${i#*=}"
       ;;

@@ -3,11 +3,19 @@
 
 #define BOARD_W 9
 #define BOARD_H 9
-#define POOL_SIZE 3
-#define BALLS_ROW 5
+#include <stdbool.h>
 
-enum {
-	ball1 = 1,
+#define POOL_SIZE  3
+#define BALLS_ROW  5
+#define COLORS_NR  7
+#define BONUSES_NR 4
+#define BONUS_PCNT 5
+#define BALLS_NR  (COLORS_NR + BONUSES_NR)
+#define FL_PATH  0x80
+
+typedef enum {
+	no_ball = 0,
+	ball1,
 	ball2,
 	ball3,
 	ball4,
@@ -19,10 +27,18 @@ enum {
 	ball_brush,
 	ball_boom,
 	ball_max,
-} __BALLTYPE__;
+} ball_t;
 
-#define COLORS_NR 7
-#define BONUSES_NR 4
+typedef enum {
+	IDLE = 0,
+	MOVING,
+	FILL_POOL,
+	FILL_BOARD,
+	CHECK,
+	REMOVE,
+	END
+} stat_b;
+
 typedef unsigned char cell_t;
 
 extern void board_init(void);
@@ -34,7 +50,7 @@ extern cell_t board_cell(int x, int y);
 extern void board_time_update(int sec);
 extern bool board_selected(int *x, int *y);
 extern bool board_moved(int *x, int *y);
-extern void board_logic(void);
+extern stat_b board_logic(void);
 extern bool board_follow_path(int x, int y, int *ox, int *oy, int id);
 extern bool board_path(int x, int y);
 extern void board_clear_path(int x, int y);
@@ -42,7 +58,4 @@ extern cell_t pool_cell(int x);
 extern int board_time(void);
 extern int board_score(void);
 extern int board_score_mul(void);
-extern bool board_running(void);
-extern bool board_load(const char *path);
-extern bool board_save(const char *path);
 #endif

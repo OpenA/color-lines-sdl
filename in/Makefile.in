@@ -1,5 +1,5 @@
 NAME     := color-lines
-VERSION  := 1.2
+VERSION  := 1.3
 VERTITLE := $(NAME)-$(VERSION)-$(shell uname -m)
 BUILDVER := $(head -c7 .git/FETCH_HEAD)
 COMPILER := @@CC@@
@@ -9,7 +9,7 @@ ifdef COMPILER
 CC       := $(COMPILER)
 endif
 
-SRC      := board.c graphics.c main.c sound.c
+SRC      := main.c
 OBJ      := $(patsubst %.c, %.o, $(SRC))
 OS       := $(shell uname | sed "y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/")
 

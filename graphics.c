@@ -1,28 +1,11 @@
-#include "main.h"
-#include <SDL_image.h>
-#include <SDL_ttf.h>
+#include <math.h>
 #include "graphics.h"
-#include "math.h"
+#include "exstr.h"
 
 static SDL_Window *sdlWindow;
 static SDL_Renderer *sdlRenderer;
 static SDL_Texture *sdlTexture;
 static SDL_Surface *screen;
-
-void gfx_free_image(img_t p)
-{
-	SDL_FreeSurface((SDL_Surface *)p);
-}
-
-int	gfx_img_w(img_t pixmap)
-{
-	return pixmap ? ((SDL_Surface *)pixmap)->w : 0;
-}
-
-int	gfx_img_h(img_t pixmap)
-{
-	return pixmap ? ((SDL_Surface *)pixmap)->h : 0;
-}
 
 img_t gfx_grab_screen(int x, int y, int w, int h)
 {
@@ -66,21 +49,15 @@ img_t gfx_combine(img_t src, img_t dst)
 	return new;
 }
 
-img_t gfx_load_image(const char *file, bool alpha)
-{
-	char path[ PATH_MAX ];
-	
-	strcpy(path, GAME_DIR);
-	strcat(path, "gfx/");
-	strcat(path, file);
-	
+img_t gfx_load_image(const char *file, SDL_bool has_alpha)
+{	
 	SDL_Surface *img, *surf;
 
-	if (!(img = IMG_Load(path))) {
-		fprintf(stderr, "graphics.c: File not found - '%s'\n", path);
+	if (!(img = IMG_Load(file))) {
+		fprintf(stderr, "graphics.c: File not found - '%s'\n", file);
 		return NULL;
 	}
-	if (alpha) {
+	if (SDL_TRUE == has_alpha) {
 		SDL_SetColorKey(img, SDL_HasColorKey(img), img->format->format);
 		return img;
 	}
@@ -226,18 +203,18 @@ img_t gfx_draw_ttf_text(char *text)
 	return pixbuf;
 }
 
-bool gfx_load_font(const char *file, const int cW)
+font_t *gfx_load_font(const char *file, const int cW)
 {
-	SDL_Surface *img = (SDL_Surface*)gfx_load_image(file, true);
+	SDL_Surface *img = gfx_load_image(file, SDL_TRUE);
 	
 	if (!img)
-		return true;
+		return NULL;
 	
-	font = malloc(sizeof(*font));
+	font_t *font = malloc(sizeof(font_t));
 	
 	if (!font) {
 		gfx_free_image(img);
-		return true;
+		return NULL;
 	}
 	const int cN = img->w / cW;
 	const int cH = img->h;
@@ -278,7 +255,7 @@ bool gfx_load_font(const char *file, const int cW)
 			}
 		}
 	}
-	return false;
+	return font;
 }
 
 void gfx_font_free(void)
@@ -287,35 +264,23 @@ void gfx_font_free(void)
 	free(font);
 }
 
-void gfx_draw_bg(img_t p, int x, int y, int w, int h)
-{
-	SDL_Surface *pixbuf = (SDL_Surface *)p;
+void gfx_draw_bg(img_t pix, int x, int y, int w, int h) {
 	SDL_Rect dest, src;
-	src.x = dest.x = x;
-	src.y = dest.y = y;
-	src.w = dest.w = w;
-	src.h = dest.h = h;
-	SDL_BlitSurface(pixbuf, &src, screen, &dest);
+	src.x = dest.x = x, src.w = dest.w = w;
+	src.y = dest.y = y, src.h = dest.h = h;
+	SDL_UpperBlit(pix, &src, screen, &dest);
 }
 
-void gfx_draw(img_t p, int x, int y)
-{
-	SDL_Surface *pixbuf = (SDL_Surface *)p;
-	SDL_Rect dest;
-	dest.x = x; dest.w = pixbuf->w;
-	dest.y = y; dest.h = pixbuf->h;
-	SDL_BlitSurface(pixbuf, NULL, screen, &dest);
+void gfx_draw(img_t pix, int x, int y) {
+	SDL_Rect rect = { .x = x, .y = y, .w = pix->w, .h = pix->h };\
+	SDL_UpperBlit(pix, NULL, screen, &rect);\
 }
 
-void gfx_draw_wh(img_t p, int x, int y, int w, int h)
-{
-	SDL_Surface *pixbuf = (SDL_Surface *)p;
+void gfx_draw_wh(img_t pix, int x, int y, int w, int h) {
 	SDL_Rect dest, src;
-	src.x = 0; dest.x = x;
-	src.y = 0; dest.y = y;
-	src.w = dest.w = w;
-	src.h = dest.h = h;
-	SDL_BlitSurface(pixbuf, &src, screen, &dest);
+	src.x = 0, dest.x = x, src.w = dest.w = w;
+	src.y = 0, dest.y = y, src.h = dest.h = h;
+	SDL_UpperBlit(pix, &src, screen, &dest);
 }
 
 void gfx_clear(int x, int y, int w, int h)
@@ -326,54 +291,44 @@ void gfx_clear(int x, int y, int w, int h)
 	SDL_FillRect(screen, &dest, SDL_MapRGB(screen->format, 0, 0, 0));
 }
 
-bool gfx_init(void)
+SDL_bool gfx_init(const char *gfx_dir, int scr_w, int scr_h)
 {
-	if (SDL_CreateWindowAndRenderer(SCREEN_W, SCREEN_H,
-#ifdef MAEMO
+	if (SDL_CreateWindowAndRenderer(scr_w, scr_h,
+#ifdef CL_MOBILE
 		SDL_WINDOW_FULLSCREEN_DESKTOP
 #else
 		SDL_WINDOW_RESIZABLE
 #endif
 	, &sdlWindow, &sdlRenderer)) {
-		fprintf(stderr, "graphics.c: Unable to create %dx%d window - '%s'\n", SCREEN_W, SCREEN_H, SDL_GetError());
-		return true;
+		return SDL_TRUE;
 	}
 	
 	SDL_SetWindowTitle( sdlWindow, "Color Lines" );
-	
 	SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY , "linear" );
-	SDL_RenderSetLogicalSize( sdlRenderer, SCREEN_W, SCREEN_H );
+	SDL_RenderSetLogicalSize( sdlRenderer, scr_w, scr_h );
 	
-	sdlTexture = SDL_CreateTexture( sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H );
-	screen     = SDL_CreateRGBSurface( 0, SCREEN_W, SCREEN_H, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000 );
+	sdlTexture = SDL_CreateTexture( sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, scr_w, scr_h );
+	screen     = SDL_CreateRGBSurface( 0, scr_w, scr_h, 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000 );
 	
-	gfx_clear(0, 0, SCREEN_W, SCREEN_H);
-#ifdef MAEMO
+	gfx_clear(0, 0, scr_w, scr_h);
+#ifdef CL_MOBILE
 	SDL_ShowCursor(SDL_DISABLE);
 #else
 	SDL_Surface * icon;
 	char ipath[ PATH_MAX ];
-	
-	strcpy(ipath, GAME_DIR);
-	strcat(ipath, "gfx/joker.png");
-	
-	if ((icon = IMG_Load(ipath))) {
+
+	if ((icon = IMG_Load( _strcomb(ipath, gfx_dir, "joker.png") ))) {
 		SDL_SetWindowIcon( sdlWindow, icon );
 	}
 #endif
 	if (TTF_Init()) {
 		fprintf(stderr, "graphics.c: Couldn't initialize TTF - '%s'\n", TTF_GetError());
 	} else {
-		char ttfpath[ PATH_MAX ];
-
-		strcpy(ttfpath, GAME_DIR);
-		strcat(ttfpath, "gfx/manaspc.ttf");
-
-		ttf = TTF_OpenFont(ttfpath, TTF_PX);
+		ttf = TTF_OpenFont( _strcomb(ipath, gfx_dir, "manaspc.ttf"), TTF_PX );
 	}
-	if (gfx_load_font("fnt.png", FONT_WIDTH))
-		return true;
-	return false;
+	if (!(font = gfx_load_font( _strcomb(ipath, gfx_dir, "fnt.png"), FONT_WIDTH )))
+		return SDL_TRUE;
+	return SDL_FALSE;
 }
 
 void gfx_update(void) {

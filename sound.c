@@ -1,4 +1,3 @@
-#include "main.h"
 #include <SDL_mixer.h>
 #include "sound.h"
 
@@ -16,7 +15,7 @@ static struct {
 Mix_Chunk *effects[ EFFECTS_NR ] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
       int channels[ EFFECTS_NR ] = { -1, -1, -1, -1, -1, -1, -1 };
 
-static const unsigned char trackList[ TRACKS_COUNT ][32] = {
+static const char trackList[ TRACKS_COUNT ][32] = {
 	"4stonewalls.it",
 	"allnightalone.mod",
 	"aloneinaworld.xm",
@@ -45,19 +44,19 @@ static const unsigned char trackList[ TRACKS_COUNT ][32] = {
 	"xmas.xm"
 };
 
-bool snd_init(void)
+bool snd_init(const char *snd_path)
 {
 	if (Mix_OpenAudio(44100, AUDIO_S16, 2, 4096)) {
 		fprintf(stderr, "sound.c: Unable to open audio!\n");
 		return true;
 	}
-	char click   [ PATH_MAX ]; strcpy( click   , GAME_DIR ); strcat( click   , "sounds/click.wav"    );
-	char bonus   [ PATH_MAX ]; strcpy( bonus   , GAME_DIR ); strcat( bonus   , "sounds/bonus.wav"    );
-	char hiscore [ PATH_MAX ]; strcpy( hiscore , GAME_DIR ); strcat( hiscore , "sounds/hiscore.wav"  );
-	char gameover[ PATH_MAX ]; strcpy( gameover, GAME_DIR ); strcat( gameover, "sounds/gameover.wav" );
-	char boom    [ PATH_MAX ]; strcpy( boom    , GAME_DIR ); strcat( boom    , "sounds/boom.wav"     );
-	char fadeout [ PATH_MAX ]; strcpy( fadeout , GAME_DIR ); strcat( fadeout , "sounds/fadeout.wav"  );
-	char paint   [ PATH_MAX ]; strcpy( paint   , GAME_DIR ); strcat( paint   , "sounds/paint.wav"    );
+	char click   [ PATH_MAX ]; strcat( strcpy( click   , snd_path ), "click.wav"    );
+	char bonus   [ PATH_MAX ]; strcat( strcpy( bonus   , snd_path ), "bonus.wav"    );
+	char hiscore [ PATH_MAX ]; strcat( strcpy( hiscore , snd_path ), "hiscore.wav"  );
+	char gameover[ PATH_MAX ]; strcat( strcpy( gameover, snd_path ), "gameover.wav" );
+	char boom    [ PATH_MAX ]; strcat( strcpy( boom    , snd_path ), "boom.wav"     );
+	char fadeout [ PATH_MAX ]; strcat( strcpy( fadeout , snd_path ), "fadeout.wav"  );
+	char paint   [ PATH_MAX ]; strcat( strcpy( paint   , snd_path ), "paint.wav"    );
 
 	effects[SND_CLICK]    = Mix_LoadWAV( click    );
 	effects[SND_BONUS]    = Mix_LoadWAV( bonus    );
@@ -82,7 +81,7 @@ void snd_volume(short vol)
 	SND.disabled = !vsnd;
 }
 
-void snd_music_start(short num, char *name)
+void snd_music_start(short num, char *name, const char *path)
 {
 	if (SND.soundtrack) {
 		if (SND.current == num) {
@@ -95,15 +94,13 @@ void snd_music_start(short num, char *name)
 	}
 	char track[ PATH_MAX ],
 	      head[ MUS_HEAD ];
-	
-	strcpy(track, GAME_DIR);
-	strcat(track, "sounds/");
-	strcat(track, (char*)trackList[ (SND.current = num) ]);
-	
+
+	strcat(strcpy(track, path), trackList[ (SND.current = num) ]);
+
 	Mix_VolumeMusic(Mix_VolumeMusic(-1)); // -1 does not set the volume, but does return the current volume setting.
 	SND.soundtrack = Mix_LoadMUS(track);
 	FILE * file = fopen(track , "rb");
-	
+
 	if (file && !Mix_PlayMusic(SND.soundtrack, 0)) {
 		fread(head, sizeof(head), 1, file);
 		int i = 0, k = !strncmp(head, "Extended", 8) ? 17 : !strncmp(head, "IMPM", 4) ? 4 : 0;
