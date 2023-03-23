@@ -1,7 +1,8 @@
 #!/bin/sh
 
-CFLAGS='-Wall -O2'
-INSTDIR=/opt
+CFLAGS='-Wall -O2 -std=c11'
+INSTDIR='/opt'
+CC='cc'
 
 for i in "$@"; do
   case $i in
@@ -22,7 +23,7 @@ for i in "$@"; do
       CFLAGS="${i#*=}"
       ;;
     --cc=*)
-      CC=`which ${i#*=}`
+      CC="${i#*=}"
       ;;
     *)
       # unknown option
@@ -30,14 +31,33 @@ for i in "$@"; do
   esac
 done
 
-echo ""
-if [ -n "$CC" ]; then
-  echo "  compiler       : $CC"
+CFUND=`which $CC`
+  FIN='fail'
+
+if [ ! $CFUND ]; then
+  CNAME="3;39;49m$CC \033[4;39;49m(not found)"
 else
-  echo "  compiler       : cc"
+  CNAME="1;39;49m$CC"
 fi
-echo "  compiler flags : $CFLAGS"
-echo "  install prefix : $INSTDIR"
+
+echo ""
+echo "  compiler       : \033[$CNAME\033[0m"
+echo "  compiler flags : \033[1;39;49m$CFLAGS\033[0m"
+echo "  install prefix : \033[1;39;49m$INSTDIR\033[0m"
 echo ""
 
-`sed "s#@@CC@@#$CC#" in/Makefile.in | sed "s#@@CFLAGS@@#$CFLAGS#" | sed "s#@@INSTDIR@@#$INSTDIR#" > Makefile`
+if [ -e './Makefile' ]; then
+  UC='upd'
+else
+  UC='cre'
+fi
+
+if [ $CFUND ]; then
+  sed -e "s#@@CC@@#$CC#" \
+      -e "s#@@CFLAGS@@#$CFLAGS#" \
+      -e "s#@@INSTDIR@@#$INSTDIR#" \
+      in/Makefile.in > Makefile
+  FIN='done'
+fi
+
+echo " ${UC}ate \033[1;39;49mMakefile\033[0m - $FIN."
