@@ -14,20 +14,20 @@
 #define FL_PATH  0x80
 
 typedef enum {
-	no_ball = 0,
-	ball1,
-	ball2,
-	ball3,
-	ball4,
-	ball5,
-	ball6,
-	ball7,
+	no_ball = 0, ball1, ball2, ball3, ball4, ball5, ball6, ball7,
 	ball_joker,
-	ball_bomb,
+	ball_flush,
 	ball_brush,
-	ball_boom,
+	ball_bomb1,
+	ball_bomb2,
 	ball_max,
 } ball_t;
+
+#define  IS_BALL_COLOR(i) (i != no_ball    && i <  ball_joker)
+#define  IS_BALL_JOKER(i) (i == ball_joker || i == ball_flush)
+
+#define NEW_COLOR_BALL(i) ((i) %  COLORS_NR) + ball1
+#define NEW_BONUS_BALL(i) ((i) % BONUSES_NR) + ball_joker
 
 typedef enum {
 	IDLE = 0,

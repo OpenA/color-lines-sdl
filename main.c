@@ -174,9 +174,9 @@ static struct _gfx_word {
 	{ "ball_color6", &balls[5][ALPHA_STEPS - 1] },
 	{ "ball_color7", &balls[6][ALPHA_STEPS - 1] },
 	{ "ball_joker" , &balls[7][ALPHA_STEPS - 1] }, 
-	{ "ball_bomb"  , &balls[8][ALPHA_STEPS - 1] },
+	{ "ball_flush" , &balls[8][ALPHA_STEPS - 1] },
 	{ "ball_brush" , &balls[9][ALPHA_STEPS - 1] }, 
-	{ "ball_boom" , &balls[10][ALPHA_STEPS - 1] },
+	{ "ball_bomb1" , &balls[10][ALPHA_STEPS - 1] },
 	{ "pb_logo", &pb_logo },
 	{ NULL },
 };
@@ -252,9 +252,9 @@ char info_text[] = " -= Color Lines v"CL_VER" =-\n\n"
 	"After each turn three new balls randomly added to the board.\n\n"
 	"There are four bonus balls.\n\n"
 	"ball_joker is a joker that can be used like any color ball. Joker also multiply score by two.\n\n"
-	"ball_bomb acts like a joker, but when applied it also removes all balls of the same color from the board.\n\n"
+	"ball_flush acts like a joker, but when applied it also removes all balls of the same color from the board.\n\n"
 	"ball_brush paints all nearest balls in the same color.\n\n"
-	"ball_boom is a bomb. It always does \"boom\"!!!\n\n"
+	"ball_bomb1 is a bomb. It always does \"boom\"!!!\n\n"
 	"The game is over when the board is filled up.\n\n"
 	"CODE: Peter Kosyh <gloomy_pda@mail.ru>\n\n"
 	"GRAPHICS: Peter Kosyh and some files from www.openclipart.org\n\n"
@@ -425,7 +425,7 @@ void game_process_board(void)
 			} else if (!c && b->cell && (!b->effect || b->effect == jumping)) {
 				// disappearing
 				enable_effect(x, y, fadeout);
-				if (b->cell == ball_boom ) {
+				if (b->cell == ball_bomb1 ) {
 					play_snd = SND_BOOM;
 				} else
 				if (b->cell == ball_brush) {
@@ -1052,9 +1052,9 @@ bool load_game_ui(void)
 
 	/* load balls */
 	_strrepl(path, si, "joker.png" ); load_ball(path, ball, ball_joker);
-	_strrepl(path, si, "atomic.png"); load_ball(path, ball, ball_bomb );
+	_strrepl(path, si, "atomic.png"); load_ball(path, ball, ball_flush);
 	_strrepl(path, si, "paint.png" ); load_ball(path, ball, ball_brush);
-	_strrepl(path, si, "boom.png"  ); load_ball(path, ball, ball_boom );
+	_strrepl(path, si, "boom.png"  ); load_ball(path, ball, ball_bomb1);
 	_strrepl(path, si, "ball.png"  );
 
 	ball = gfx_load_image(path, SDL_TRUE);

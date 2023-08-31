@@ -388,38 +388,25 @@ static cell_t *find_pos(int pos, int *ox, int *oy)
 	return NULL;
 }
 
-static cell_t get_rand_cell(void)
+static inline cell_t gen_rand_cell(void)
 {
-	cell_t c;
-	int rnd = rand() % 100;
-	if (rnd < BONUS_PCNT)
-		return ball_joker + (rand() % BONUSES_NR);	
-	c = (rnd % COLORS_NR) + 1;
-	return c;
-}
-static cell_t get_rand_color(void)
-{
-	return (rand() % 7) + 1;
-}
-
-static bool is_color(cell_t c)
-{
-	return (c && c <= 7);
-}
-static bool is_joker(cell_t c)
-{
-	return (c == ball_joker || c == ball_bomb);
+	int rnd = rand(),
+	    col = rnd % 100;
+	if (col < BONUS_PCNT) {
+		return NEW_BONUS_BALL(rnd >> 8);
+	} else
+		return NEW_COLOR_BALL(col); // (rnd % (ball_max - 1)) + 1;
 }
 
 static cell_t joinable(cell_t c, cell_t *prev)
 {
 	if (!c || !(*prev))
 		return 0;
-	if (is_joker(*prev)) /* set joker suggestion */
+	if (IS_BALL_JOKER(*prev)) /* set joker suggestion */
 		*prev = c;
 	if ( c == *prev )
 		return c;
-	if (is_joker(c))
+	if (IS_BALL_JOKER(c))
 		return *prev;
 	return 0;
 //	return ((a == b) || (a == ball_joker) || (b == ball_joker));
@@ -442,7 +429,7 @@ static void flush_add(int x1, int y1, int x2, int y2, cell_t col)
 	f->col = col;
 	f->bomb = 0;
 	do {
-		if (cell_get(x1, y1) == ball_bomb)
+		if (cell_get(x1, y1) == ball_flush)
 			f->bomb++;
 		f->cells[f->nr].x = x1;
 		f->cells[f->nr].y = y1;
@@ -464,7 +451,7 @@ static bool remove_cell(cell_t *c)
 	if (!*c)
 		return rc;
 	
-	if (is_color(*c) || is_joker(*c)) {
+	if (IS_BALL_COLOR(*c) || IS_BALL_JOKER(*c)) {
 		Session.score_delta++;
 		rc = true;
 	}
@@ -499,7 +486,7 @@ static bool flushes_remove(void)
 				remove_color(f->col);
 			c = cell_ref(f->cells[k].x, f->cells[k].y);
 			if (*c) {
-//				if (*c == ball_bomb) {
+//				if (*c == ball_flush) {
 //					remove_color(f->col);
 //				}
 				remove_cell(c);
@@ -517,7 +504,7 @@ static bool flushes_remove(void)
 void board_fill_pool(void)
 {
 	for (int i = 0; i < POOL_SIZE; i++) {
-		Session.ball_pool[i] = get_rand_cell(); //(rand() % (ball_max - 1)) + 1;
+		Session.ball_pool[i] = gen_rand_cell();
 	}
 	Session.iball = 0;
 }
@@ -537,7 +524,7 @@ static int scan_hline(int x, int y)
 	while (xi < BOARD_W && joinable(cell_get(xi, yi), &b))
 		xi++;
 	
-	bool joker = is_joker(b); /* all jokers */
+	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
 	//if (joker)
 	//	fprintf(stderr, "~=/ Joker /=~\nstart: %d %d\nend: %d %d\n", x, y, xi, yi);
@@ -545,7 +532,7 @@ static int scan_hline(int x, int y)
 	if ((xi - x) >= BALLS_ROW) {
 		flush_add(x, y, xi - 1, y, b);
 	}
-	while (!joker && is_joker(cell_get(xi - 1, yi))) /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(cell_get(xi - 1, yi))) /* prepeare jokers for next try */
 		xi--;
 	
 	return xi;
@@ -570,9 +557,9 @@ static int scan_vline(int x, int y)
 		flush_add(x, y, xi, yi - 1, b);
 	}
 	
-	bool joker = is_joker(b); /* all jokers */
+	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
-	while (!joker && is_joker(cell_get(xi, yi - 1))) /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(cell_get(xi, yi - 1))) /* prepeare jokers for next try */
 		yi--;
 	
 	return yi;
@@ -599,9 +586,9 @@ static int scan_aline(int x, int y) /* /  line */
 		flush_add(x, y, xi - 1, yi + 1, b);
 	}
 	
-	bool joker = is_joker(b); /* all jokers */
+	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
-	while (!joker && is_joker(cell_get(xi - 1, yi + 1))) { /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(cell_get(xi - 1, yi + 1))) { /* prepeare jokers for next try */
 		yi++; xi--;
 	}
 	return xi;
@@ -628,9 +615,9 @@ static int scan_bline(int x, int y) /* \  line */
 		flush_add(x, y, xi - 1, yi - 1, b);
 	}
 	
-	bool joker = is_joker(b); /* all jokers */
+	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
-	while (!joker && is_joker(cell_get(xi - 1, yi - 1))) { /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(cell_get(xi - 1, yi - 1))) { /* prepeare jokers for next try */
 		yi--; xi--;
 	}
 	return xi;
@@ -704,7 +691,7 @@ static int boom_ball(int x, int y)
 	cell_t *c = cell_ref(x, y);
 	if (!c)
 		return 0;
-	if (*c == ball_boom) {
+	if (*c == ball_bomb1) {
 		rc += board_boom(x, y);
 //		Session.score_delta ++;
 	} else if (*c) {
@@ -717,7 +704,7 @@ static int board_boom(int x, int y)
 {
 	int rc = 0;
 	cell_t *c = cell_ref(x, y);
-	if (c && *c == ball_boom) {
+	if (c && *c == ball_bomb1) {
 		*c = 0;
 		Session.free_cells ++;
 		c = cell_ref(x - 1, y);
@@ -753,48 +740,48 @@ static int board_paint(int x, int y)
 {
 	int rc = 0;
 	
-	cell_t col = get_rand_color(); //TODO
+	cell_t col = NEW_COLOR_BALL(rand()); //TODO
 	cell_t *c = cell_ref(x, y);
 	if (c && *c == ball_brush) {
 		*c = 0;
 		Session.free_cells ++;
 		c = cell_ref(x - 1, y);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x + 1, y);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x, y - 1);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x, y + 1);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x + 1, y - 1);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x - 1, y - 1);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x + 1, y + 1);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
 		c = cell_ref(x - 1, y + 1);
-		if (c && is_color(*c)) {
+		if (c && IS_BALL_COLOR(*c)) {
 			*c = col;
 			rc ++;
 		}
