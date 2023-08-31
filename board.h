@@ -30,14 +30,14 @@ typedef enum {
 #define NEW_BONUS_BALL(i) ((i) % BONUSES_NR) + ball_joker
 
 typedef enum {
-	IDLE = 0,
-	MOVING,
-	FILL_POOL,
-	FILL_BOARD,
-	CHECK,
-	REMOVE,
-	END
-} stat_b;
+	ST_END = 0,
+	ST_IDLE,
+	ST_MOVING,
+	ST_FILL_POOL,
+	ST_FILL_BOARD,
+	ST_CHECK,
+	ST_REMOVE
+} step_t;
 
 typedef unsigned char cell_t;
 
@@ -50,7 +50,7 @@ extern cell_t board_cell(int x, int y);
 extern void board_time_update(int sec);
 extern bool board_selected(int *x, int *y);
 extern bool board_moved(int *x, int *y);
-extern stat_b board_logic(void);
+extern step_t board_next_step(void);
 extern bool board_follow_path(int x, int y, int *ox, int *oy, int id);
 extern bool board_path(int x, int y);
 extern void board_clear_path(int x, int y);
@@ -58,4 +58,9 @@ extern cell_t pool_cell(int x);
 extern int board_time(void);
 extern int board_score(void);
 extern int board_score_mul(void);
+
+static inline void board_finally(void)
+{
+	while (board_next_step() > ST_IDLE);
+}
 #endif

@@ -839,7 +839,7 @@ Uint32 gameHandler(Uint32 interval, void *_)
 			show_score();
 			game_display_pool();
 			if (!game_display_board()) { /* nothing todo */
-				if (board_logic() == END && !status.update_needed && !status.game_over) {
+				if (!board_next_step() && !status.update_needed && !status.game_over) {
 					stop_GameTimer();
 					draw_Msg("Game Over!", 0);
 					status.game_over = true;
@@ -908,6 +908,7 @@ static void game_loop() {
 					Vol.temp = set_volume(x), refresh = true;
 				}
 				else if (is_OnElem(Restart, x, y)) {
+					board_finally();
 					if (board_running()) {
 						snd_play(
 							check_hiscores(board_score()) ? SND_HISCORE : SND_GAMEOVER, 1);
@@ -1237,8 +1238,8 @@ int main(int argc, char **argv) {
 	}
 	game_prep();
 	game_loop();
-	if (!is_board_finally())
-		STOR_CONFIG(Session, "save");
+	board_finally();
+	STOR_CONFIG(Session, "save");
 	/* END GAME CODE HERE */
 	stop_GameTimer();
 	free_game_ui();

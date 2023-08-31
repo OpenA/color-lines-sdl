@@ -18,7 +18,7 @@ static struct __SESS__ {
 } Session;
 
 static unsigned int flush_nr;
-static stat_b board_stat;
+static step_t board_stat;
 
 typedef struct {
 	int x;
@@ -58,7 +58,7 @@ bool board_selected(int *x, int *y)
 
 bool board_moved(int *x, int *y)
 {
-	bool moved = ball_to_x > -1 && ball_to_y > -1 && board_stat == CHECK;
+	bool moved = ball_to_x > -1 && ball_to_y > -1 && board_stat == ST_CHECK;
 	//fprintf(stderr,"Ball moved: %d %d\n", ball_to_x, ball_to_y);
 	if ( moved ) {
 		if (x)
@@ -90,7 +90,7 @@ void board_init(void)
 	board_fill(NULL, NULL);
 	board_fill_pool();
 	
-	board_stat = IDLE;
+	board_stat = ST_IDLE;
 }
 
 cell_t board_cell(int x, int y)
@@ -867,7 +867,7 @@ bool board_select(int x, int y)
 	if (y < 0 || y >= BOARD_H)
 		return false;
 	
-//	if (board_stat != IDLE) {
+//	if (board_stat != ST_IDLE) {
 //		return false;
 //	}
 	
@@ -885,13 +885,13 @@ bool board_select(int x, int y)
 		return false;
 	}
 
-	if (board_stat != IDLE) {
+	if (board_stat != ST_IDLE) {
 		return false;
 	}
 
 	ball_to_x = x;
 	ball_to_y = y;
-	board_stat = MOVING;
+	board_stat = ST_MOVING;
 	
 //	if (!board_move(ball_x, ball_y, x, y)) {
 //		return false;
@@ -903,39 +903,39 @@ bool board_select(int x, int y)
 	return true;
 }
 
-stat_b board_logic()
+step_t board_next_step()
 {
 	static bool rc;
 	static int x, y;
 	bool fl;
 //	fprintf(stderr,"state=%d\n", board_stat);
 	switch(board_stat) {
-	case IDLE:
+	case ST_IDLE:
 		if (!Session.free_cells)
-			board_stat = END;
+			board_stat = ST_END;
 		else if (Session.free_cells == (BOARD_W * BOARD_H))
-			board_stat = FILL_BOARD;
+			board_stat = ST_FILL_BOARD;
 		break;
-	case MOVING:
+	case ST_MOVING:
 		if ((rc = board_move(ball_x, ball_y, ball_to_x, ball_to_y))) {
-			board_stat = CHECK;
+			board_stat = ST_CHECK;
 //			x = ball_to_x;
 //			y = ball_to_y;
 			ball_x = -1;
 			ball_y = -1;
 		} else
-			board_stat = IDLE;
+			board_stat = ST_IDLE;
 		break;
-	case FILL_POOL:
+	case ST_FILL_POOL:
 		board_fill_pool();
-		board_stat = (Session.free_cells == BOARD_W * BOARD_H) ? FILL_BOARD : IDLE;
+		board_stat = (Session.free_cells == BOARD_W * BOARD_H) ? ST_FILL_BOARD : ST_IDLE;
 //		Session.score_mul = 1;
 		break;
-	case FILL_BOARD:
-		board_stat = (rc = board_fill(&x, &y)) ? END : CHECK;
+	case ST_FILL_BOARD:
+		board_stat = (rc = board_fill(&x, &y)) ? ST_END : ST_CHECK;
 //		Session.score_mul = 1; /* multiply == 1 */	
 		break;
-	case CHECK:
+	case ST_CHECK:
 		if (rc) {
 			Session.score_mul = 1;
 			x = ball_to_x;// = -1;
@@ -948,13 +948,13 @@ stat_b board_logic()
 		ball_to_x  = -1;
 		ball_to_y  = -1;
 		if (board_check(x, y))
-			board_stat = REMOVE;
+			board_stat = ST_REMOVE;
 		else if (rc || (POOL_SIZE - Session.iball) > 0)
-			board_stat = FILL_BOARD;
+			board_stat = ST_FILL_BOARD;
 		else
-			board_stat = FILL_POOL;
+			board_stat = ST_FILL_POOL;
 		break;
-	case REMOVE:
+	case ST_REMOVE:
 		fl = flushes_remove();
 		Session.score += Session.score_delta * Session.score_mul;
 		if (fl)
@@ -962,13 +962,13 @@ stat_b board_logic()
 //		fprintf(stderr, "Score: %d (+%d * %d)\n", Session.score, Session.score_delta, Session.score_mul);
 //		show_score(Session.score);
 		if (rc)
-			board_stat = IDLE;
+			board_stat = ST_IDLE;
 		else if ((POOL_SIZE - Session.iball) > 0)
-			board_stat = FILL_BOARD;
+			board_stat = ST_FILL_BOARD;
 		else
-			board_stat = FILL_POOL;
+			board_stat = ST_FILL_POOL;
 		break;
-	case END:
+	case ST_END:
 //		fprintf(stderr, "Game Over\n");
 		break;
 	}
@@ -991,13 +991,5 @@ int board_score_mul()
 
 bool board_running(void)
 {
-	return board_stat != END;
-}
-
-bool is_board_finally() {
-	stat_b bstat;
-	do {
-		bstat = board_logic();
-	} while (bstat != IDLE && bstat != END);
-	return bstat == END;
+	return board_stat != ST_END;
 }
