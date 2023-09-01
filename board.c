@@ -929,11 +929,9 @@ step_t board_next_step()
 	case ST_FILL_POOL:
 		board_fill_pool();
 		board_stat = (Session.free_cells == BOARD_W * BOARD_H) ? ST_FILL_BOARD : ST_IDLE;
-//		Session.score_mul = 1;
 		break;
 	case ST_FILL_BOARD:
 		board_stat = (rc = board_fill(&x, &y)) ? ST_END : ST_CHECK;
-//		Session.score_mul = 1; /* multiply == 1 */	
 		break;
 	case ST_CHECK:
 		if (rc) {
@@ -949,7 +947,8 @@ step_t board_next_step()
 		if (board_check(x, y))
 			board_stat = ST_REMOVE;
 		else if (rc || (POOL_SIZE - Session.iball) > 0)
-			board_stat = ST_FILL_BOARD;
+			board_stat = ST_FILL_BOARD,
+			Session.score_mul = 1; /* multiply == 1 */
 		else
 			board_stat = ST_FILL_POOL;
 		break;
