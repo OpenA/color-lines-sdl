@@ -937,7 +937,6 @@ step_t board_next_step()
 		break;
 	case ST_CHECK:
 		if (rc) {
-			Session.score_mul = 1;
 			x = ball_to_x;// = -1;
 			y = ball_to_y;// = -1;
 		} else {
