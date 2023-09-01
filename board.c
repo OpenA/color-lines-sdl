@@ -393,7 +393,7 @@ static inline cell_t gen_rand_cell(void)
 	int rnd = rand(),
 	    col = rnd % 100;
 	if (col < BONUS_PCNT) {
-		return NEW_BONUS_BALL(rnd >> 8);
+		return NEW_BONUS_BALL(rnd >> 18);
 	} else
 		return NEW_COLOR_BALL(col); // (rnd % (ball_max - 1)) + 1;
 }
