@@ -946,9 +946,11 @@ step_t board_next_step()
 		ball_to_y  = -1;
 		if (board_check(x, y))
 			board_stat = ST_REMOVE;
-		else if (rc || (POOL_SIZE - Session.iball) > 0)
+		else if (rc)
 			board_stat = ST_FILL_BOARD,
 			Session.score_mul = 1; /* multiply == 1 */
+		else if (Session.iball < POOL_SIZE)
+			board_stat = ST_FILL_BOARD;
 		else
 			board_stat = ST_FILL_POOL;
 		break;
@@ -961,7 +963,7 @@ step_t board_next_step()
 //		show_score(Session.score);
 		if (rc)
 			board_stat = ST_IDLE;
-		else if ((POOL_SIZE - Session.iball) > 0)
+		else if (Session.iball < POOL_SIZE)
 			board_stat = ST_FILL_BOARD;
 		else
 			board_stat = ST_FILL_POOL;
