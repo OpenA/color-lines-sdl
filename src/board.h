@@ -11,6 +11,7 @@
 #define BALL_BONUS_N  4
 #define BALL_BONUS_D  5
 
+# define MSK_NUM  0x7F
 # define MSK_BALL 0x0F
 # define MSK_ATTR 0xF0
 

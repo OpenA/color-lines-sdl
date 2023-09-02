@@ -144,17 +144,16 @@ static int mark_cell(int x, int y, cell_t n, int id)
 		return 0;
 	return new;
 }
-#endif
 
-static int move_cell(move_t *mov, int x, int y, int n, int id)
+static int move_cell(int x, int y, int n, int id)
 {
 	if (x < 0 || x >= BOARD_W)
 		return 0;
 	if (y < 0 || y >= BOARD_H)
 		return 0;
-	if (mov->cuids[x][y] != id)
+	if (move_matrix_ids[x][y] != id)
 		return 0;
-	return mov->matrix[x][y];
+	return move_matrix[x][y];
 }
 
 typedef struct {
@@ -163,12 +162,12 @@ typedef struct {
 	int n;
 } way_t;
 
-static void normalize_move_matrix(move_t *mov, int x, int y, int tox, int toy, int id)
+static void normalize_move_matrix(int x, int y, int tox, int toy, int id)
 {
 	int dx, dy, i;
 	int last_move = -1;
-	int num = mov->matrix[x][y];
-	mov->matrix[x][y] |= FL_PATH;
+	int num = move_matrix[x][y];
+	move_matrix[x][y] |= FL_PATH;
 	
 	do {
 		way_t w[4];
@@ -178,10 +177,10 @@ static void normalize_move_matrix(move_t *mov, int x, int y, int tox, int toy, i
 		w[0].x = x + 1; w[1].x = x; w[0].y = y; w[1].y = y + 1; 
 		w[2].x = x - 1; w[3].x = x; w[2].y = y; w[3].y = y - 1;
 		
-		w[0].n = move_cell(mov, x + 1, y, num, id);
-		w[1].n = move_cell(mov, x, y + 1, num, id);
-		w[2].n = move_cell(mov, x - 1, y, num, id);
-		w[3].n = move_cell(mov, x, y - 1, num, id);
+		w[0].n = move_cell(x + 1, y, num, id);
+		w[1].n = move_cell(x, y + 1, num, id);
+		w[2].n = move_cell(x - 1, y, num, id);
+		w[3].n = move_cell(x, y - 1, num, id);
 		
 		dx = tox - x;
 		dy = toy - y;
@@ -231,7 +230,7 @@ static void normalize_move_matrix(move_t *mov, int x, int y, int tox, int toy, i
 		x   = w[last_move].x;
 		y   = w[last_move].y;
 		
-		mov->matrix[x][y] |= FL_PATH;
+		move_matrix[x][y] |= FL_PATH;
 		
 	} while (num != 1);
 /*
@@ -273,35 +272,35 @@ void board_clear_path(int x, int y)
 	move_matrix[x][y] = move_matrix[x][y] & ~FL_PATH;
 }
 
-bool board_follow_path(move_t *mov, int x, int y, int *ox, int *oy, int id)
+bool board_follow_path(int x, int y, int *ox, int *oy, int id)
 {
 	int num;
 	int a,v;
-	num  = mov->matrix[x][y];
+	num  = move_matrix[x][y];
 	if (!(num & FL_PATH)) {
 		return false;
 	}
 	num &= ~FL_PATH;
 	
-	a = move_cell(mov, x + 1, y, num, id);
+	a = move_cell(x + 1, y, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x + 1; *oy = y;
 		return true;
 	}
-	a = move_cell(mov, x, y + 1, num, id);
+	a = move_cell(x, y + 1, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x; *oy = y + 1;
 		return true;
 	}
-	a = move_cell(mov, x -1 , y, num, id);
+	a = move_cell(x -1 , y, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x - 1; *oy = y;
 		return true;
 	}
-	a = move_cell(mov, x, y - 1, num, id);
+	a = move_cell(x, y - 1, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x; *oy = y - 1;
@@ -364,7 +363,7 @@ static bool board_move(int x1, int y1, int x2, int y2)
 		*c = 0;
 		c = cell_ref(x2, y2);
 		*c = b;
-		//normalize_move_matrix(x2, y2, x1, y1, id);
+		normalize_move_matrix(x2, y2, x1, y1, id);
 		return true;
 	}
 	return false;
@@ -389,7 +388,7 @@ static cell_t *find_pos(int pos, int *ox, int *oy)
 	}
 	return NULL;
 }
-
+#endif
 static inline cell_t gen_rand_cell(void)
 {
 	int rnd = rand(),
