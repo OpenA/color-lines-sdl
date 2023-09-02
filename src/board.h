@@ -1,0 +1,116 @@
+#ifndef _BOARD_H_
+# define _BOARD_H_
+# include <stdbool.h>
+
+# define BOARD_DESK_W  9
+# define BOARD_DESK_H  9
+# define BOARD_POOL_N  3
+# define BOARD_DESK_N (BOARD_DESK_W * BOARD_DESK_H)
+
+#define BALL_COLOR_N  7
+#define BALL_BONUS_N  4
+#define BALL_BONUS_D  5
+
+# define MSK_BALL 0x0F
+# define MSK_ATTR 0xF0
+
+# define FL_DELAY 0x40
+# define FL_PATH  0x80
+
+typedef enum {
+	no_ball = 0, ball1, ball2, ball3, ball4, ball5, ball6, ball7,
+	ball_joker,
+	ball_flush,
+	ball_brush,
+	ball_bomb1,
+	ball_bomb2,
+	ball_max,
+} ball_t;
+
+# define  IS_OUT_DESK(x,y) (x < 0 || x >= BOARD_DESK_W || y < 0 || y >= BOARD_DESK_H)
+
+# define  IS_BALL_COLOR(i) (i != no_ball    && i <  ball_joker)
+# define  IS_BALL_JOKER(i) (i == ball_joker || i == ball_flush)
+
+# define NEW_COLOR_BALL(i) ((i) % BALL_COLOR_N) + ball1
+# define NEW_BONUS_BALL(i) ((i) % BALL_BONUS_N) + ball_joker
+
+typedef unsigned char cell_t;
+typedef struct {
+	int x, y;
+} pos_t;
+
+typedef struct {
+	cell_t cells[BOARD_DESK_W][BOARD_DESK_H],
+	        pool[BOARD_POOL_N];
+
+	unsigned int score, playtime;
+	unsigned char dmul, delta;
+} desk_t;
+
+typedef enum {
+	ST_End = 0,
+	ST_Idle,
+	ST_Moving,
+	ST_FillPool,
+	ST_FillDesk,
+	ST_Check,
+	ST_Remove
+} state_t;
+
+typedef struct {
+	cell_t matrix[BOARD_DESK_W][BOARD_DESK_H],
+	        cuids[BOARD_DESK_W][BOARD_DESK_H];
+
+	pos_t from, to;
+
+	unsigned short free_n, pool_i, flush_n;
+	unsigned char state, flags;
+} move_t;
+
+/* BOARD GETTERS */
+# define board_get_score(brd)         (brd)->score
+# define board_get_delta(brd)         (brd)->delta
+# define board_get_cell(brd, x, y)    (brd)->cells[x][y]
+# define board_get_pool(brd, i)       (brd)->pool [i]
+# define board_get_time(brd)          (brd)->playtime
+# define board_get_dmul(brd)          (brd)->dmul
+/* BOARD SETTERS */
+# define board_set_score(brd, s)      (brd)->score = s
+# define board_set_delta(brd, d)      (brd)->delta = d
+# define board_set_cell(brd, x, y, c) (brd)->cells[x][y] = c
+# define board_set_pool(brd, i, c)    (brd)->pool [i] = c
+# define board_set_time(brd, t)       (brd)->playtime = t
+# define board_set_dmul(brd, m)       (brd)->dmul = m
+/* BOARD OTHER */
+# define board_del_select(mov)        (mov)->from.x = (mov)->from.y = -1
+# define board_del_mpath(mov, x, y)   (mov)->matrix[x][y] &= ~FL_PATH
+# define board_has_mpath(mov, x, y)  ((mov)->matrix[x][y] &   FL_PATH)
+# define board_has_moves(mov)        ((mov)->state == ST_Check && (mov)->to.x != -1 && (mov)->to.y != -1)
+# define board_has_over(mov)         ((mov)->state == ST_End)
+
+extern void board_init_desk(desk_t *brd);
+extern void board_init_move(move_t *mov, int nb);
+extern void board_fill_desk(desk_t *brd, int pool_i, int free_n);
+extern void board_fill_pool(desk_t *brd);
+extern char board_next_move(desk_t *brd, move_t *mov);
+extern void board_select_ball(desk_t *brd, move_t *mov, int x, int y);
+
+static inline ball_t board_get_ball(desk_t *brd, int x, int y) {
+	if (IS_OUT_DESK(x, y))
+		return no_ball;
+	return board_get_cell(brd, x, y) & MSK_BALL;
+}
+static inline ball_t board_get_selected(desk_t *brd, move_t *mov, int *x, int *y)
+{
+	ball_t b = board_get_ball(brd, mov->from.x, mov->from.y);
+	if (b != no_ball)
+		*x = mov->from.x, *y = mov->from.y;
+	return b;
+}
+static inline void board_wait_finish(desk_t *brd, move_t *mov)
+{
+	while (board_next_move(brd, mov) > ST_Idle);
+}
+
+#endif //__BOARD_H

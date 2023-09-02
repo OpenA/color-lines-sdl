@@ -34,6 +34,7 @@ typedef struct {
 
 flush_t	*flushes[BOARD_W * BOARD_H];
 
+#ifndef _BOARD_H_
 static cell_t cell_get(int x, int y)
 {
 	if (x < 0 || x >= BOARD_W)
@@ -143,16 +144,17 @@ static int mark_cell(int x, int y, cell_t n, int id)
 		return 0;
 	return new;
 }
+#endif
 
-static int move_cell(int x, int y, int n, int id)
+static int move_cell(move_t *mov, int x, int y, int n, int id)
 {
 	if (x < 0 || x >= BOARD_W)
 		return 0;
 	if (y < 0 || y >= BOARD_H)
 		return 0;
-	if (move_matrix_ids[x][y] != id)
+	if (mov->cuids[x][y] != id)
 		return 0;
-	return move_matrix[x][y];
+	return mov->matrix[x][y];
 }
 
 typedef struct {
@@ -161,12 +163,12 @@ typedef struct {
 	int n;
 } way_t;
 
-static void normalize_move_matrix(int x, int y, int tox, int toy, int id)
+static void normalize_move_matrix(move_t *mov, int x, int y, int tox, int toy, int id)
 {
 	int dx, dy, i;
 	int last_move = -1;
-	int num = move_matrix[x][y];
-	move_matrix[x][y] |= FL_PATH;
+	int num = mov->matrix[x][y];
+	mov->matrix[x][y] |= FL_PATH;
 	
 	do {
 		way_t w[4];
@@ -176,10 +178,10 @@ static void normalize_move_matrix(int x, int y, int tox, int toy, int id)
 		w[0].x = x + 1; w[1].x = x; w[0].y = y; w[1].y = y + 1; 
 		w[2].x = x - 1; w[3].x = x; w[2].y = y; w[3].y = y - 1;
 		
-		w[0].n = move_cell(x + 1, y, num, id);
-		w[1].n = move_cell(x, y + 1, num, id);
-		w[2].n = move_cell(x - 1, y, num, id);
-		w[3].n = move_cell(x, y - 1, num, id);
+		w[0].n = move_cell(mov, x + 1, y, num, id);
+		w[1].n = move_cell(mov, x, y + 1, num, id);
+		w[2].n = move_cell(mov, x - 1, y, num, id);
+		w[3].n = move_cell(mov, x, y - 1, num, id);
 		
 		dx = tox - x;
 		dy = toy - y;
@@ -229,7 +231,7 @@ static void normalize_move_matrix(int x, int y, int tox, int toy, int id)
 		x   = w[last_move].x;
 		y   = w[last_move].y;
 		
-		move_matrix[x][y] |= FL_PATH;
+		mov->matrix[x][y] |= FL_PATH;
 		
 	} while (num != 1);
 /*
@@ -271,35 +273,35 @@ void board_clear_path(int x, int y)
 	move_matrix[x][y] = move_matrix[x][y] & ~FL_PATH;
 }
 
-bool board_follow_path(int x, int y, int *ox, int *oy, int id)
+bool board_follow_path(move_t *mov, int x, int y, int *ox, int *oy, int id)
 {
 	int num;
 	int a,v;
-	num  = move_matrix[x][y];
+	num  = mov->matrix[x][y];
 	if (!(num & FL_PATH)) {
 		return false;
 	}
 	num &= ~FL_PATH;
 	
-	a = move_cell(x + 1, y, num, id);
+	a = move_cell(mov, x + 1, y, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x + 1; *oy = y;
 		return true;
 	}
-	a = move_cell(x, y + 1, num, id);
+	a = move_cell(mov, x, y + 1, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x; *oy = y + 1;
 		return true;
 	}
-	a = move_cell(x -1 , y, num, id);
+	a = move_cell(mov, x -1 , y, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x - 1; *oy = y;
 		return true;
 	}
-	a = move_cell(x, y - 1, num, id);
+	a = move_cell(mov, x, y - 1, num, id);
 	v = a & ~FL_PATH;
 	if ((a & FL_PATH) && (v == num + 1)) {
 		*ox = x; *oy = y - 1;
@@ -362,7 +364,7 @@ static bool board_move(int x1, int y1, int x2, int y2)
 		*c = 0;
 		c = cell_ref(x2, y2);
 		*c = b;
-		normalize_move_matrix(x2, y2, x1, y1, id);
+		//normalize_move_matrix(x2, y2, x1, y1, id);
 		return true;
 	}
 	return false;
@@ -412,7 +414,7 @@ static cell_t joinable(cell_t c, cell_t *prev)
 //	return ((a == b) || (a == ball_joker) || (b == ball_joker));
 }
 
-static void flush_add(int x1, int y1, int x2, int y2, cell_t col)
+static void flush_add(desk_t *brd, int x1, int y1, int x2, int y2, cell_t col)
 {
 	flush_t *f;
 	f = malloc(sizeof(flush_t));
@@ -429,7 +431,7 @@ static void flush_add(int x1, int y1, int x2, int y2, cell_t col)
 	f->col = col;
 	f->bomb = 0;
 	do {
-		if (cell_get(x1, y1) == ball_flush)
+		if (board_get_ball(brd, x1, y1) == ball_flush)
 			f->bomb++;
 		f->cells[f->nr].x = x1;
 		f->cells[f->nr].y = y1;
@@ -462,46 +464,52 @@ static bool remove_cell(cell_t *c)
 	return rc;
 }
 
-static void remove_color(cell_t col)
+static int remove_color(desk_t *brd, cell_t col)
 {
-	int x, y;
+	int x, y, n = 0;
 	for (y = 0; y < BOARD_H; y ++) {
 		for (x = 0; x < BOARD_W; x ++) {
-			cell_t *c = cell_ref(x, y);
-			if (*c == col) {
-				remove_cell(c);
+			cell_t c = board_get_cell(brd, x, y) & MSK_BALL;
+			if (c == col) {
+				brd->delta += (IS_BALL_COLOR(c) || IS_BALL_JOKER(c));
+				brd->dmul  += (c == ball_joker ? brd->dmul : 0);
+				board_set_cell(brd, x, y, no_ball);
+				n++;
 			}
 		}
 	}
+	return n;
 }
 
-static bool flushes_remove(void)
+static int flushes_remove(desk_t *brd)
 {
-	int i, k;
+	int i, k, n = 0;
 	for (i = 0; i < flush_nr; i++) {
-		cell_t *c;
+		//cell_t *c;
 		flush_t *f = flushes[i];
 		for (k = 0; k < f->nr; k++) {
 			if (f->bomb)
-				remove_color(f->col);
-			c = cell_ref(f->cells[k].x, f->cells[k].y);
-			if (*c) {
-//				if (*c == ball_flush) {
-//					remove_color(f->col);
-//				}
-				remove_cell(c);
+				n += remove_color(brd, f->col);
+
+			int x = f->cells[k].x,
+			    y = f->cells[k].y;
+			
+			cell_t c = board_get_cell(brd, x, y) & MSK_BALL;
+
+			if (c != no_ball) {
+				brd->delta += (IS_BALL_COLOR(c) || IS_BALL_JOKER(c));
+				brd->dmul  += (c == ball_joker ? brd->dmul : 0);
+				board_set_cell(brd, x, y, no_ball);
+				n++;
 			}
 		}
 		free(f);
 	}
-	if (flush_nr) {
-		flush_nr = 0;
-		return true;
-	}
-	return false;
+	flush_nr = 0;
+	return n;
 }
 
-void board_fill_pool(void)
+void _board_fill_pool(void)
 {
 	for (int i = 0; i < POOL_SIZE; i++) {
 		Session.ball_pool[i] = gen_rand_cell();
@@ -509,9 +517,9 @@ void board_fill_pool(void)
 	Session.iball = 0;
 }
 
-static int scan_hline(int x, int y)
+static int scan_Hline(desk_t *brd, int x, int y)
 {
-	while (x < BOARD_W && !cell_get(x, y)) // skip spaces
+	while (x < BOARD_W && board_get_ball(brd, x, y) == no_ball) // skip spaces
 		x++;
 	
 	if ((BOARD_W - x) < BALLS_ROW)
@@ -519,9 +527,9 @@ static int scan_hline(int x, int y)
 	
 	int xi = x;
 	int yi = y;
-	cell_t b = cell_get(x, y);
+	cell_t b = board_get_ball(brd, x, y);
 	
-	while (xi < BOARD_W && joinable(cell_get(xi, yi), &b))
+	while (xi < BOARD_W && joinable(board_get_ball(brd, xi, yi), &b))
 		xi++;
 	
 	bool joker = IS_BALL_JOKER(b); /* all jokers */
@@ -530,17 +538,17 @@ static int scan_hline(int x, int y)
 	//	fprintf(stderr, "~=/ Joker /=~\nstart: %d %d\nend: %d %d\n", x, y, xi, yi);
 	
 	if ((xi - x) >= BALLS_ROW) {
-		flush_add(x, y, xi - 1, y, b);
+		flush_add(brd, x, y, xi - 1, y, b);
 	}
-	while (!joker && IS_BALL_JOKER(cell_get(xi - 1, yi))) /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(board_get_ball(brd, xi - 1, yi))) /* prepeare jokers for next try */
 		xi--;
 	
 	return xi;
 }
 
-static int scan_vline(int x, int y)
+static int scan_Vline(desk_t *brd, int x, int y)
 {
-	while (y < BOARD_H && !cell_get(x, y)) // skip spaces
+	while (y < BOARD_H && !board_get_ball(brd, x, y)) // skip spaces
 		y++;
 	
 	if ((BOARD_H - y) < BALLS_ROW)
@@ -548,26 +556,26 @@ static int scan_vline(int x, int y)
 	
 	int xi = x;
 	int yi = y;
-	cell_t b = cell_get(x, y);
+	cell_t b = board_get_ball(brd, x, y);
 	
-	while (yi < BOARD_H && joinable(cell_get(xi, yi), &b))
+	while (yi < BOARD_H && joinable(board_get_ball(brd, xi, yi), &b))
 		yi++;
 	
 	if ((yi - y) >= BALLS_ROW) {
-		flush_add(x, y, xi, yi - 1, b);
+		flush_add(brd, x, y, xi, yi - 1, b);
 	}
 	
 	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
-	while (!joker && IS_BALL_JOKER(cell_get(xi, yi - 1))) /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(board_get_ball(brd, xi, yi - 1))) /* prepeare jokers for next try */
 		yi--;
 	
 	return yi;
 }
 
-static int scan_aline(int x, int y) /* /  line */
+static int scan_Aline(desk_t *brd, int x, int y) /* /  line */
 {
-	while (x < BOARD_W && y >= 0 && !cell_get(x, y)) { // skip spaces
+	while (x < BOARD_W && y >= 0 && !board_get_ball(brd, x, y)) { // skip spaces
 		y--; x++;
 	}
 //	if (y < BALLS_ROW)
@@ -577,26 +585,26 @@ static int scan_aline(int x, int y) /* /  line */
 	
 	int xi = x;
 	int yi = y;
-	cell_t b = cell_get(x, y);
+	cell_t b = board_get_ball(brd, x, y);
 	
-	while (xi < BOARD_W && yi >= 0 && joinable(cell_get(xi, yi), &b)) {
+	while (xi < BOARD_W && yi >= 0 && joinable(board_get_ball(brd, xi, yi), &b)) {
 		yi--; xi++;
 	}
 	if ((xi - x) >= BALLS_ROW) {
-		flush_add(x, y, xi - 1, yi + 1, b);
+		flush_add(brd, x, y, xi - 1, yi + 1, b);
 	}
 	
 	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
-	while (!joker && IS_BALL_JOKER(cell_get(xi - 1, yi + 1))) { /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(board_get_ball(brd, xi - 1, yi + 1))) { /* prepeare jokers for next try */
 		yi++; xi--;
 	}
 	return xi;
 }
 
-static int scan_bline(int x, int y) /* \  line */
+static int scan_Bline(desk_t *brd, int x, int y) /* \  line */
 {
-	while (x < BOARD_W && y < BOARD_H && !cell_get(x, y)) { // skip spaces
+	while (x < BOARD_W && y < BOARD_H && !board_get_ball(brd, x, y)) { // skip spaces
 		y++; x++;
 	}
 //	if ((BOARD_H - y) < BALLS_ROW)
@@ -606,22 +614,24 @@ static int scan_bline(int x, int y) /* \  line */
 	
 	int xi = x;
 	int yi = y;
-	cell_t b = cell_get(x, y);
+	cell_t b = board_get_ball(brd, x, y);
 	
-	while (xi < BOARD_W && yi < BOARD_H && joinable(cell_get(xi, yi), &b)) {
+	while (xi < BOARD_W && yi < BOARD_H && joinable(board_get_ball(brd, xi, yi), &b)) {
 		yi++; xi++;
 	}
 	if ((xi - x) >= BALLS_ROW) {
-		flush_add(x, y, xi - 1, yi - 1, b);
+		flush_add(brd, x, y, xi - 1, yi - 1, b);
 	}
 	
 	bool joker = IS_BALL_JOKER(b); /* all jokers */
 	
-	while (!joker && IS_BALL_JOKER(cell_get(xi - 1, yi - 1))) { /* prepeare jokers for next try */
+	while (!joker && IS_BALL_JOKER(board_get_ball(brd, xi - 1, yi - 1))) { /* prepeare jokers for next try */
 		yi--; xi--;
 	}
 	return xi;
 }
+
+#ifndef _BOARD_H_
 
 static int board_check_hlines(void)
 {	
@@ -927,7 +937,7 @@ step_t board_next_step()
 			board_stat = ST_IDLE;
 		break;
 	case ST_FILL_POOL:
-		board_fill_pool();
+		_board_fill_pool();
 		board_stat = (Session.free_cells == BOARD_W * BOARD_H) ? ST_FILL_BOARD : ST_IDLE;
 		break;
 	case ST_FILL_BOARD:
@@ -993,3 +1003,5 @@ bool board_running(void)
 {
 	return board_stat != ST_END;
 }
+
+#endif

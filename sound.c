@@ -1,4 +1,4 @@
-#include <SDL_mixer.h>
+#include <SDL2/SDL_mixer.h>
 #include "sound.h"
 
 #define EFFECTS_NR 7

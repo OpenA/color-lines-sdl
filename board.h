@@ -13,6 +13,7 @@
 #define BALLS_NR  (COLORS_NR + BONUSES_NR)
 #define FL_PATH  0x80
 
+#ifndef _BOARD_H_
 typedef enum {
 	no_ball = 0, ball1, ball2, ball3, ball4, ball5, ball6, ball7,
 	ball_joker,
@@ -29,6 +30,7 @@ typedef enum {
 #define NEW_COLOR_BALL(i) ((i) %  COLORS_NR) + ball1
 #define NEW_BONUS_BALL(i) ((i) % BONUSES_NR) + ball_joker
 
+#endif
 typedef enum {
 	ST_END = 0,
 	ST_IDLE,
@@ -44,14 +46,14 @@ typedef unsigned char cell_t;
 extern void board_init(void);
 extern bool board_fill(int *x, int *y); /* calls gfx_fill_cell, gfx_clear_pool */
 extern void board_display(void); /* calls gfx_display_board */
-extern void board_fill_pool(void); /* calls gfx_fill_pool */
+extern void _board_fill_pool(void); /* calls gfx_fill_pool */
 extern bool board_select(int x, int y); /* calls gfx_select_ball, gfx_move, gfx_clean_cell */
 extern cell_t board_cell(int x, int y);
 extern void board_time_update(int sec);
 extern bool board_selected(int *x, int *y);
 extern bool board_moved(int *x, int *y);
 extern step_t board_next_step(void);
-extern bool board_follow_path(int x, int y, int *ox, int *oy, int id);
+extern bool board_follow_path(move_t *mov, int x, int y, int *ox, int *oy, int id);
 extern bool board_path(int x, int y);
 extern void board_clear_path(int x, int y);
 extern cell_t pool_cell(int x);
