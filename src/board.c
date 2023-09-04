@@ -177,7 +177,7 @@ static bool act_move_ball(desk_t *brd, move_t *mov)
 	int fX = mov->from.x, tX = mov->to.x,
 	    fY = mov->from.y, tY = mov->to.y;
 
-	muid_t tm, id;
+	muid_t id;
 	int x, y, i, mk;
 
 	for (y = 0; y < BOARD_DESK_H; y++) {

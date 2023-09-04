@@ -4,6 +4,7 @@ VERTITLE := $(NAME)-$(VERSION)-$(shell uname -m)
 BUILDVER := $(head -c7 .git/FETCH_HEAD)
 COMPILER := @@CC@@
 INSTDIR  := @@INSTDIR@@/$(NAME)
+D_ATTRS  := -DCL_VER=\"$(VERSION)\"
 
 ifdef COMPILER
 CC       := $(COMPILER)
@@ -22,8 +23,7 @@ endif
 
 ifeq ($(OS),DARWIN)
 
-	OS      := MACOS
-	INSTDIR := $(HOME)/Applications/Color\ Lines.app/Contents/MacOS
+INSTDIR := $(HOME)/Applications/Color\ Lines.app/Contents/MacOS
 
 icns:
 	mkdir CL.iconset
@@ -44,11 +44,9 @@ tar: all
 	ln -sf ./ $(VERTITLE)
 	tar --exclude='./*/.*' -cf $(VERTITLE).tar Color\ Lines.app
 
-else
+else ## Other UNIX
 
-ifeq ($(OS),SUNOS)
-	OS := SOLARIS
-endif
+D_ATTRS := $(D_ATTRS) -D_POSIX_C_SOURCE=200809L
 
 ifeq ($(shell which ./color-lines.desktop),)
 desktop:
@@ -69,7 +67,7 @@ tar: all desktop
 
 endif
 
-CFLAGS   := @@CFLAGS@@ $(shell sdl2-config --cflags) -D$(OS) -DCL_VER=\"$(VERSION)\"
+CFLAGS   := @@CFLAGS@@ $(shell sdl2-config --cflags)
 LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer -lSDL2_ttf
 
 color-lines: $(OBJ)
@@ -78,7 +76,7 @@ color-lines: $(OBJ)
 	rm -f *.o
 
 $(OBJ): %.o : %.c
-	$(CC) -c $(<) $(I) $(CFLAGS)
+	$(CC) -c $(<) $(I) $(CFLAGS) $(D_ATTRS)
 
 tar.lzma: tar
 	lzma -9 dist/$(VERTITLE).tar
