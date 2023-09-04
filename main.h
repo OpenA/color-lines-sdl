@@ -1,40 +1,5 @@
 #ifndef MAIN_H
 
-#include <stdbool.h>
-#include "exstr.h"
-#include <stdlib.h>
-#include <stdio.h>
-#include <time.h>
-
-#ifdef WINDOWS
-	#include <windows.h>
-	#include <shlobj.h>
-	#ifndef PATH_MAX
-		#define PATH_MAX MAX_PATH
-	#endif
-
-	#define GetConfigPath(dir) \
-		SHGetFolderPath(\
-			NULL, CSIDL_FLAG_CREATE | CSIDL_LOCAL_APPDATA,\
-			NULL, 0, (LPTSTR)dir)
-#else
-	#include <limits.h>
-	#include <unistd.h>
-	#include <pwd.h>
-	#include <sys/stat.h>
-	#include <sys/types.h>
-	#ifdef MACOS
-		#include <mach-o/dyld.h>
-	#endif
-
-	#define GetConfigPath(dir) {\
-		struct passwd *pw = getpwuid(getuid());\
-		strcat(strcpy(dir, pw ? pw->pw_dir : "/tmp"), "/.config");\
-		if(access(dir, F_OK ) == -1)\
-		    mkdir(dir, 0755 );\
-	}
-#endif
-
 #define _max(a,b) (((a)>(b))?(a):(b))   // developer: 'max' was a global define, so it was replaced to '_max'
 #define _min(a,b) (((a)<(b))?(a):(b))   // developer: 'min' was a global define, so it was replaced to '_min'
 

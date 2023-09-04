@@ -1,6 +1,6 @@
 #include <math.h>
 #include "graphics.h"
-#include "exstr.h"
+#include "src/cstr.h"
 
 static SDL_Window *sdlWindow;
 static SDL_Renderer *sdlRenderer;
@@ -315,7 +315,7 @@ SDL_bool gfx_init(const char *gfx_dir, int scr_w, int scr_h)
 	SDL_ShowCursor(SDL_DISABLE);
 #else
 	SDL_Surface * icon;
-	char ipath[ PATH_MAX ];
+	char ipath[ SYS_PATH_L ];
 
 	if ((icon = IMG_Load( _strcomb(ipath, gfx_dir, "joker.png") ))) {
 		SDL_SetWindowIcon( sdlWindow, icon );

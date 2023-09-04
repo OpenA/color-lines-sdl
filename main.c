@@ -9,53 +9,22 @@
 #define BOARD_WIDTH  (BOARD_W * TILE_W)
 #define BOARD_HEIGHT (BOARD_H * TILE_H)
 
-char path_gfx[ PATH_MAX ],
-     path_snd[ PATH_MAX ], path_cfg[ PATH_MAX ];
+char path_gfx[ SYS_PATH_L ],
+     path_snd[ SYS_PATH_L ];
 
 /* Game Hiscores */
 static int hiscores_list[HISCORES_NR] = {
 	50, 40, 30, 20, 10
 };
-# define FILE_HISCORES(rw, F)\
-	char _p[ PATH_MAX ];\
-	FILE *file = fopen(_strcomb(_p, path_cfg, "scores"), rw);\
-	if (file != NULL) {\
-		for (int i = 0; i < HISCORES_NR; i++) {\
-			if ((F)(&hiscores_list[i], sizeof(int), 1, file) != 1)\
-				break;\
-		}\
-		fclose(file);\
-	}
-# define LOAD_HISCORES() FILE_HISCORES("r", fread)
-# define STOR_HISCORES() FILE_HISCORES("w", fwrite)
 
-/* Game Prefs */
-static struct __PREF__ {
-	short volume;
-	char music;
-	bool loop;
-	int lastTime;
-} Prefs  = {
-	.volume = 256,
-	.music  = 0,
-	.loop   = false
-};
-
-#define FILE_CONFIG(rw, blob, name, F) {\
-	char _p[ PATH_MAX ];\
-	FILE *file = fopen(_strcomb(_p, path_cfg, name), rw);\
-	if (file != NULL)\
-	   (F)(&blob, sizeof(blob), 1, file), fclose(file);\
-}
-#define LOAD_CONFIG(blob, name) FILE_CONFIG("rb", blob, name, fread)
-#define STOR_CONFIG(blob, name) FILE_CONFIG("wb", blob, name, fwrite)
-
+static sets_t Prefs = DEFAULT_SETS();
 static desk_t Board;
 static move_t Move;
 
 static struct __STAT__ {
-	bool running, game_over, update_needed, store_prefs;
+	bool running, game_over, update_needed, store_prefs, store_hiscore;
 } status = {
+	.store_hiscore = false,
 	.store_prefs   = false,
 	.update_needed = false,
 	.game_over     = false,
@@ -663,28 +632,50 @@ static void cell_to_screen(int x, int y, int *ox, int *oy)
 
 static void music_switch(void)
 {
-	if (Prefs.music == -1) {
-		Prefs.music = Music.temp;
-		snd_music_start(Prefs.music, Track.name, path_snd);
+	if (Prefs.track == -1) {
+		Prefs.track = Music.temp;
+		snd_music_start(Prefs.track, Track.name, path_snd);
 		if (!Track.on)
 			draw_Track_title();
 	} else {
-		Music.temp = Prefs.music;
-		Prefs.music = -1;
+		Music.temp = Prefs.track;
+		Prefs.track = -1;
 		snd_music_stop();
 	}
 	status.store_prefs = true;
-	draw_Button(Music, (Prefs.music > -1));
+	draw_Button(Music, (Prefs.track > -1));
 	gfx_update();
+}
+
+void toggle_loop() {
+
+	bool loop = Prefs.flags & FL_PREF_LOOP;
+	     loop ^= 1;
+
+	if (loop)
+		Prefs.flags |= FL_PREF_LOOP;
+	else
+		Prefs.flags &= ~FL_PREF_LOOP;
+	status.store_prefs = true;
+	draw_Button(Loop, loop);
 }
 
 void track_switch(void)
 {
-	if ((status.store_prefs = Prefs.music > -1)) {
-		Prefs.music += Prefs.loop >> Track.hook ^ 1;
-		if (Prefs.music >= TRACKS_COUNT)
-			Prefs.music = 0;
-		snd_music_start(Prefs.music, Track.name, path_snd);
+	char tnum = Prefs.track;
+	bool loop = Prefs.flags & FL_PREF_LOOP,
+	     pass = false;
+
+	if (tnum >= 0 && !(loop && !Track.hook)) {
+		if((tnum + 1) >= TRACKS_COUNT)
+			tnum = 0;
+		else
+			tnum++;
+		Prefs.track = tnum;
+		status.store_prefs = pass = true;
+	}
+	snd_music_start(tnum, Track.name, path_snd);
+	if (pass) {
 		gfx_free_image(Track.on);
 		draw_Track_title();
 	}
@@ -936,7 +927,7 @@ static void game_loop() {
 					track_switch();
 				}
 				else if (is_OnElem(Loop, x, y)) {
-					draw_Button(Loop, (Prefs.loop ^= 1));
+					toggle_loop();
 					refresh = true;
 				}
 				else if (is_OnElem(Info, x, y)) {
@@ -1026,7 +1017,7 @@ static bool check_hiscores(int score)
 				hiscores_list[k] = hiscores_list[k - 1];
 			}
 			hiscores_list[i] = score;
-			STOR_HISCORES();
+			status.store_hiscore = true;
 			break;
 		}
 	}
@@ -1051,7 +1042,7 @@ static void show_hiscores(void)
 
 bool load_game_ui(void)
 {
-	char path[ PATH_MAX ], cname[14];
+	char path[ SYS_PATH_L ], cname[14];
 	const size_t si = strlen( strcpy(path, path_gfx) );
 	img_t ball;
 
@@ -1144,11 +1135,11 @@ static void game_prep(void)
 
 	Music.w = mus_w, Music.x = 0;
 	Music.h = mus_h, Music.y = SCREEN_H - mus_h;
-	draw_Button(Music, Prefs.music != -1);
+	draw_Button(Music, Prefs.track != -1);
 
 	Loop.w = iget_W(Loop), Loop.x = mus_w + 5;
 	Loop.h = iget_H(Loop), Loop.y = SCREEN_H - mus_h - Loop.h;
-	draw_Button(Loop, Prefs.loop);
+	draw_Button(Loop, Prefs.flags & FL_PREF_LOOP);
 
 	Info.w = iget_W(Info), Info.x = 0;
 	Info.h = iget_H(Info), Info.y = SCREEN_H - mus_h - Info.h;
@@ -1187,7 +1178,7 @@ static void game_restart(bool rel)
 	draw_board();
 	cur_score = rel ? board_get_score(&Board) - 1 : -1;
 	cur_mul   = rel ? board_get_dmul (&Board) - 1 :  0;
-	draw_Timer_digit((Prefs.lastTime = -1), NULL);
+	draw_Timer_digit(0, NULL);
 	show_score();
 	show_hiscores();
 	gfx_update();
@@ -1200,42 +1191,34 @@ int main(int argc, char **argv) {
 	strncat(path_gfx, CL_IMG_DIR, sizeof(CL_IMG_DIR));
 	strncat(path_snd, CL_SND_DIR, sizeof(CL_SND_DIR));
 #else
-	char game_dir[ PATH_MAX ];
-	ssize_t s = PATH_MAX;
+	path_t game_dir;
 
-# if defined WINDOWS
-	GetModuleFileName(NULL, game_dir, s);
-# elif defined MACOS
-	_NSGetExecutablePath(game_dir, &s);
-# elif defined FREEBSD
-	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
-	sysctl(mib, 4, game_dir, &s, NULL, 0);
-# elif defined LINUX
-	s = readlink("/proc/self/exe", game_dir, PATH_MAX);
-# elif defined NETBSD
-	s = readlink("/proc/curproc/exe", game_dir, PATH_MAX);
-# elif defined SOLARIS
-	s = strlen(strcat(game_dir, getexecname()));
-# else
-	s = strlen(strcat(game_dir, argv[0]));
+	if (!SysGetExecPath(&game_dir)) {
+		puts("Can't fing game directory\n");
+		return -1;
+	}
+# ifdef DEBUG
+	fprintf(stderr, "found game:%s\n",game_dir.path);
 # endif
-
-	do {
-		s--;
-	} while (game_dir[s] != '/');
-
-	strcat(strncpy(path_gfx, game_dir, s), "/gfx/");
-	strcat(strncpy(path_snd, game_dir, s), "/sounds/");
+	_strncomb(path_gfx, game_dir.path, "/gfx/"   , game_dir.len);
+	_strncomb(path_snd, game_dir.path, "/sounds/", game_dir.len);
 #endif
 
-	GetConfigPath(path_cfg);
-	if (access(strcat(path_cfg, "/color-lines/"), F_OK ) == -1)
-		mkdir(path_cfg, 0755);
+	path_t cfg_dir, sess_cfg, hisc_tab;
 
-	char save_p[ PATH_MAX ]; _strcomb(save_p, path_cfg, "session");
-
+	if (!SysAcessConfigPath(&cfg_dir, "color-lines")) {
+		puts("Can't acess home config directory check you permissions\n");
+		return -1;
+	}
+# ifdef DEBUG
+	fprintf(stderr, "found config:%s\n",sess_cfg.path);
+# endif
+	_strcomb(sess_cfg.path, cfg_dir.path, "session");
+	_strcomb(hisc_tab.path, cfg_dir.path, "scores");
+	_strrepl( cfg_dir.path, cfg_dir.len , "prefs");
 	// load settings before sound init
-	LOAD_CONFIG(Prefs, "prefs"); LOAD_HISCORES();
+	game_load_settings(&Prefs, cfg_dir.path);
+	game_load_hiscores(hiscores_list, hisc_tab.path);
 
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
@@ -1253,21 +1236,22 @@ int main(int argc, char **argv) {
 		Music.hook = true;
 	} else {
 		snd_volume(Prefs.volume);
-		if (Prefs.music > -1)
-			snd_music_start(Prefs.music, Track.name, path_snd);
+		if (Prefs.track >= 0)
+			snd_music_start(Prefs.track, Track.name, path_snd);
 	}
 	game_prep();
-	game_restart(game_load_session(&Board, save_p));
+	game_restart(game_load_session(&Board, sess_cfg.path));
 	game_loop();
-	board_wait_finish(&Board, &Move);
-	game_save_session(&Board, save_p);
 	/* END GAME CODE HERE */
-	stop_GameTimer();
+	board_wait_finish(&Board, &Move);
+	game_save_session(&Board, sess_cfg.path);
+	if (status.store_hiscore)
+		game_save_hiscores(hiscores_list, hisc_tab.path);
+	if (status.store_prefs)
+		game_save_settings(&Prefs, cfg_dir.path);
 	free_game_ui();
 	snd_done();
 	gfx_done();
-	if (status.store_prefs)
-		STOR_CONFIG(Prefs, "prefs");
 	SDL_Quit();
 	return 0;
 }
