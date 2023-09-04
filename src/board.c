@@ -42,7 +42,7 @@ static inline cell_t new_rand_cell(void)
 	if (col < BALL_BONUS_D) {
 		return NEW_BONUS_BALL(rand());
 	} else
-		return NEW_COLOR_BALL(col); // (rnd % (ball_max - 1)) + 1;
+		return NEW_COLOR_BALL(col);
 }
 
 static inline int get_mpath_num(move_t *mov, int x, int y, muid_t id)

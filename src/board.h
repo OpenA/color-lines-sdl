@@ -26,8 +26,17 @@ typedef enum {
 	ball_brush,
 	ball_bomb1,
 	ball_bomb2,
-	ball_max,
+	ball_bomb3,
 } ball_t;
+
+typedef enum {
+	attr_normal = 0x00,
+	attr_level1 = 0x10,
+	attr_level2 = 0x20,
+	attr_level3 = 0x30,
+	attr_frozen = 0x70,
+	attr_hidden = 0xF0
+} attr_t;
 
 # define  IS_OUT_DESK(x,y) (x < 0 || x >= BOARD_DESK_W || y < 0 || y >= BOARD_DESK_H)
 # define  IS_BALL_COLOR(i) (i != no_ball    && i <  ball_joker)
