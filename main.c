@@ -376,7 +376,7 @@ void game_move_ball(void)
 		enable_effect(tx, ty, moving);
 		game_board[tx][ty].tx = tx;
 		game_board[tx][ty].ty = ty;
-		game_board[tx][ty].id = y * BOARD_W + x;
+		game_board[tx][ty].id = NEW_MPATH_ID(x,y);
 		game_board[tx][ty].x = x;
 		game_board[tx][ty].y = y;
 		disable_effect(x, y);

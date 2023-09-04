@@ -45,18 +45,19 @@ static inline cell_t new_rand_cell(void)
 		return NEW_COLOR_BALL(col); // (rnd % (ball_max - 1)) + 1;
 }
 
-static inline cell_t get_mpath_num(move_t *mov, int x, int y, int id)
+static inline int get_mpath_num(move_t *mov, int x, int y, muid_t id)
 {
-	if (IS_OUT_DESK(x, y) || mov->cuids[x][y] != id)
+	if (IS_OUT_DESK(x, y) || board_get_mpid(mov, x, y) != id)
 		return 0;
-	return mov->matrix[x][y];
+	return board_get_mnum(mov, x, y);
 }
 
-static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int from_y, int id)
+static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int from_y, muid_t id)
 {
-	int i, lw = -1, n = mov->matrix[x][y];
+	int i, n, lw = -1;
 
-	mov->matrix[x][y] |= FL_PATH;
+	n = board_get_mnum(mov, x, y);
+	    board_add_mpath(mov,x, y);
 
 	do {
 		const pos_t p[] = { MATRIX_NEIR(x,y) };
@@ -91,7 +92,7 @@ static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int fro
 		x = p[lw].x;
 		y = p[lw].y;
 
-		mov->matrix[x][y] |= FL_PATH;
+		board_add_mpath(mov, x, y);
 
 	} while (n != 1);
 
@@ -99,8 +100,8 @@ static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int fro
 	fprintf(stdout, "\n=>\n");
 	for (y = 0; y < BOARD_DESK_H; y ++) {
 		for (x = 0; x < BOARD_DESK_W; x ++) {
-			if (mov->matrix[x][y] & FL_PATH)
-				fprintf(stdout, " %02d :", mov->matrix[x][y] & MSK_NUM);
+			if (board_has_mpath(mov, x, y))
+				fprintf(stdout, " %02d :", board_get_mnum(mov, x, y));
 			else	
 				fprintf(stdout, "    :");
 		}
@@ -109,22 +110,20 @@ static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int fro
 # endif /* <======= */
 }
 
-static inline int act_mark_cell(desk_t *brd, move_t *mov, int x, int y, cell_t pN, int id)
+static inline int act_mark_cell(desk_t *brd, move_t *mov, int x, int y, int pN, muid_t id)
 {
 	if (IS_OUT_DESK(x,y))
 		return 0;
 
 	ball_t b = board_get_cell(brd, x, y) & MSK_BALL;
-	cell_t m = mov->matrix[x][y];
+	int    n = board_get_mnum(mov, x, y);
+	bool  hp = board_has_mpath(mov, x, y);
 
-	cell_t iN = pN + 1;
-
-	if (b == no_ball && !(m & FL_PATH) && (!m || m > iN)) {
-		mov->cuids [x][y] = id;
-		mov->matrix[x][y] = iN;
+	if (b == no_ball && !hp && (!n || (n > pN + 1))) {
+		board_set_muid(mov, x, y, id, (n = pN + 1));
 	} else
-		iN = 0;
-	return iN;
+		n = 0;
+	return n;
 }
 
 static int act_boom_ball(desk_t *brd, int x, int y)
@@ -178,40 +177,38 @@ static bool act_move_ball(desk_t *brd, move_t *mov)
 	int fX = mov->from.x, tX = mov->to.x,
 	    fY = mov->from.y, tY = mov->to.y;
 
-	int x, y, i, mk, id = fX + fY * BOARD_DESK_W;
+	muid_t tm, id;
+	int x, y, i, mk;
 
 	for (y = 0; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < BOARD_DESK_W; x++) {
-			if (!(mov->matrix[x][y] & FL_PATH)) {
-				mov->matrix[x][y] = 0;
-				mov->cuids [x][y] = (cell_t)-1;
+			if(!board_has_mpath(mov, x, y)) {
+				board_set_muid(mov, x, y, MSK_mPID, 0);
 			}
 		}
 	}
-	if (mov->matrix[fX][fY])
+	if (board_get_mnum(mov, fX, fY))
 		return false;
 
-	mov->matrix[fX][fY] =  1;
-	mov->cuids [fX][fY] = id;
+	id = NEW_MPATH_ID(fX, fY),
+	board_set_muid(mov, fX, fY, id, 1);
 
 	do {
 		for (mk = y = 0; y < BOARD_DESK_H; y++) {
 			for (x = 0; x < BOARD_DESK_W; x++) {
 
-				cell_t m  = mov->matrix[x][y];
+				int n = board_get_mnum(mov, x, y);
 				pos_t p[] = { MATRIX_NEIR(x,y) };
 
-				if (!m || (m & FL_PATH))
+				if (n == 0 || board_has_mpath(mov, x, y))
 					continue;
 				for (i = 0; i < MATRIX_NEIR_N; i++)
-					mk += act_mark_cell(brd, mov, p[i].x, p[i].y, m, id);
+					mk += act_mark_cell(brd, mov, p[i].x, p[i].y, n, id);
 			}
 		}
 	} while (mk != 0);
 
-	cell_t tm = mov->matrix[tX][tY];
-
-	if (!(tm & FL_PATH) && tm) {
+	if (!board_has_mpath(mov, tX, tY) && board_get_mnum(mov, tX, tY)) {
 		cell_t b = board_get_cell(brd, fX, fY);
 	//	cell_t a = board_get_cell(brd, tX, tY);
 
@@ -291,7 +288,7 @@ void board_init_move(move_t *mov, int nb)
 
 	for (y = 0; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < BOARD_DESK_W; x++) {
-			mov->matrix[x][y] = mov->cuids[x][y] = 0;
+			board_set_muid(mov, x, y, 0, 0);
 		}
 	}
 	mov->from.x  = mov->to.x = -1;
@@ -345,20 +342,18 @@ void board_select_ball(desk_t *brd, move_t *mov, int x, int y)
 
 bool board_follow_path(move_t *mov, int x, int y, int *ox, int *oy, int id)
 {
-	cell_t gM = mov->matrix[x][y],
-	       gN = gM & MSK_NUM;
+	int i, n, gN = board_get_mnum(mov, x, y);
 
-	if (!(gM & FL_PATH))
+	if (!board_has_mpath(mov, x, y))
 		return false;
 
 	const pos_t p[] = { MATRIX_NEIR(x,y) };
 
-	for (int i = 0; i < MATRIX_NEIR_N; i++)
+	for (i = 0; i < MATRIX_NEIR_N; i++)
 	{
-		cell_t m = get_mpath_num(mov, p[i].x, p[i].y, id),
-		       n = m & MSK_NUM;
+		n = get_mpath_num(mov, p[i].x, p[i].y, id);
 
-		if ((m & FL_PATH) && (n == gN + 1)) {
+		if (board_has_mpath(mov, p[i].x, p[i].y) && (n == gN + 1)) {
 			*ox = p[i].x;
 			*oy = p[i].y;
 			return true;
