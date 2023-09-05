@@ -1,6 +1,7 @@
 #ifndef _BOARD_H_
-# define _BOARD_H_
 # include <stdbool.h>
+# include <stdlib.h>
+# define _BOARD_H_
 
 # define BOARD_DESK_W  9
 # define BOARD_DESK_H  9
@@ -95,8 +96,8 @@ typedef struct {
 # define board_set_time(brd, t)       (brd)->playtime = t
 # define board_set_dmul(brd, m)       (brd)->dmul = m
 /* MOVE PATH GETTERS */
-# define board_get_mnum(mov, x, y)   ((mov)->matrix[x][y] &   MSK_mNUM)
-# define board_get_mpid(mov, x, y)   ((mov)->matrix[x][y] &   MSK_mPID)
+# define board_get_mnum(mov, x, y)   ((mov)->matrix[x][y] & MSK_mNUM)
+# define board_get_mpid(mov, x, y)   ((mov)->matrix[x][y] & MSK_mPID)
 # define board_get_muid(mov, x, y)    (mov)->matrix[x][y]
 /* MOVE PATH SETTERS */
 # define board_set_muid(mov, x,y,p,n) (mov)->matrix[x][y] = p | n

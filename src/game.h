@@ -1,5 +1,4 @@
 #ifndef _GAME_H_
-# include <stdlib.h>
 # include <time.h>
 # include "sys.h"
 # include "board.c"
