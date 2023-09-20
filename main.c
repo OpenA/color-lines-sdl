@@ -13,11 +13,11 @@ char path_gfx[ SYS_PATH_L ],
      path_snd[ SYS_PATH_L ];
 
 /* Game Hiscores */
-static int hiscores_list[HISCORES_NR] = {
-	50, 40, 30, 20, 10
+static record_t Records[HISCORES_NR] = {
+	DEFAULT_RECORD(50), DEFAULT_RECORD(40),
+	DEFAULT_RECORD(30), DEFAULT_RECORD(20), DEFAULT_RECORD(10)
 };
-
-static sets_t Prefs = DEFAULT_SETS();
+static setts_t Prefs = DEFAULT_SETTS();
 static desk_t Board;
 static move_t Move;
 
@@ -1012,11 +1012,11 @@ static bool check_hiscores(int score)
 {
 	bool stat = false;
 	for (int i = 0; i < HISCORES_NR; i++) {
-		if ((stat = score > hiscores_list[i])) {
+		if ((stat = score > Records[i].hiscore)) {
 			for (int k = HISCORES_NR - 1; k > i; k--) {
-				hiscores_list[k] = hiscores_list[k - 1];
+				Records[k].hiscore = Records[k - 1].hiscore;
 			}
-			hiscores_list[i] = score;
+			Records[i].hiscore = score;
 			status.store_hiscore = true;
 			break;
 		}
@@ -1034,7 +1034,7 @@ static void show_hiscores(void)
 		w = gfx_chars_width(buff);
 		snprintf(buff, sizeof(buff),"%d.", i + 1);
 		gfx_draw_text(buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h, 0);
-		snprintf(buff, sizeof(buff),"%d", hiscores_list[i]);
+		snprintf(buff, sizeof(buff),"%d", Records[i].hiscore);
 		w = gfx_chars_width(buff);
 		gfx_draw_text(buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h, 0);
 	}
@@ -1187,38 +1187,37 @@ static void game_restart(bool rel)
 
 int main(int argc, char **argv) {
 
+	path_t cfg_dir, game_dir;
+	bool rel = false;
+
 #if CL_IMG_DIR && CL_SND_DIR
 	strncat(path_gfx, CL_IMG_DIR, sizeof(CL_IMG_DIR));
 	strncat(path_snd, CL_SND_DIR, sizeof(CL_SND_DIR));
 #else
-	path_t game_dir;
 
 	if (!SysGetExecPath(&game_dir)) {
 		puts("Can't fing game directory\n");
 		return -1;
 	}
 # ifdef DEBUG
-	fprintf(stderr, "found game:%s\n",game_dir.path);
+	fprintf(stderr, "\n- found gamedir:  %s\n",game_dir.path);
 # endif
 	_strncomb(path_gfx, game_dir.path, "/gfx/"   , game_dir.len);
 	_strncomb(path_snd, game_dir.path, "/sounds/", game_dir.len);
 #endif
-
-	path_t cfg_dir, sess_cfg, hisc_tab;
 
 	if (!SysAcessConfigPath(&cfg_dir, "color-lines")) {
 		puts("Can't acess home config directory check you permissions\n");
 		return -1;
 	}
 # ifdef DEBUG
-	fprintf(stderr, "found config:%s\n",sess_cfg.path);
+	fprintf(stderr, "- found config:   %s\n\n", cfg_dir.path);
+# else
+	rel = game_load_session(&Board , _getfpath(cfg_dir, "session"));
+	      game_load_records(Records, _getfpath(cfg_dir, "records"));
 # endif
-	_strcomb(sess_cfg.path, cfg_dir.path, "session");
-	_strcomb(hisc_tab.path, cfg_dir.path, "scores");
-	_strrepl( cfg_dir.path, cfg_dir.len , "prefs");
 	// load settings before sound init
-	game_load_settings(&Prefs, cfg_dir.path);
-	game_load_hiscores(hiscores_list, hisc_tab.path);
+	      game_load_settings(&Prefs, _getfpath(cfg_dir, "prefs"  ));
 
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
@@ -1240,15 +1239,18 @@ int main(int argc, char **argv) {
 			snd_music_start(Prefs.track, Track.name, path_snd);
 	}
 	game_prep();
-	game_restart(game_load_session(&Board, sess_cfg.path));
+	game_restart(rel);
 	game_loop();
 	/* END GAME CODE HERE */
 	board_wait_finish(&Board, &Move);
-	game_save_session(&Board, sess_cfg.path);
+# ifndef DEBUG
+	// save game progress
+	    game_save_session(&Board , _getfpath(cfg_dir, "session"));
 	if (status.store_hiscore)
-		game_save_hiscores(hiscores_list, hisc_tab.path);
+	    game_save_records(Records, _getfpath(cfg_dir, "records"));
 	if (status.store_prefs)
-		game_save_settings(&Prefs, cfg_dir.path);
+	    game_save_settings(&Prefs, _getfpath(cfg_dir,   "prefs"));
+# endif
 	free_game_ui();
 	snd_done();
 	gfx_done();

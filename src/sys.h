@@ -29,6 +29,9 @@ typedef struct {
 	char path[SYS_PATH_L];
 } path_t;
 
+# define _getfpath(p, _T) \
+         _strnrepl(p.path, p.len, _T, sizeof(_T))
+
 static inline int SysAcessConfigPath(path_t *cfg, cstr_t appname) {
 
 	size_t sz = 0;

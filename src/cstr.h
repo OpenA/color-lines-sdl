@@ -8,9 +8,15 @@ typedef const char* cstr_t;
 # define _strcatl(  dst, src, _T)     strcat( strcat(dst, src   ), _T"\0")
 # define _strncomb( dst, src, _T, l)  strcat(strncpy(dst, src, l), _T"\0")
 # define _strrepl(  dst, s,   _T)    _strnrepl(dst, s, _T, sizeof(_T))
-# define _strnrepl( dst, s,   _T, l) \
-	for(int i = 0; i < l; i++) {\
-	    dst[i + s] =  (_T)[i];\
-	}; (dst[s + l] = '\0')
+
+static inline cstr_t _strnrepl(
+	char  *dst, unsigned int s,
+	cstr_t src, unsigned int l
+) {
+	for(int i = 0; i < l; i++) {
+	    dst[i + s] =  src[i];
+	}; (dst[s + l] = '\0');
+	return dst;
+}
 
 #endif

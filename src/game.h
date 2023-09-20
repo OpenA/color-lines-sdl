@@ -10,19 +10,28 @@ typedef struct {
 	short volume;
 	char track, flags;
 	int _reservs;
-} sets_t;
+} setts_t;
 
-# define DEFAULT_SETS() {\
+# define DEFAULT_SETTS() {\
 	.volume = 256, .track = 0,\
 	._reservs = 0, .flags = 0,\
+}
+
+typedef struct {
+	unsigned int hiscore, time;
+	unsigned char who;
+} record_t;
+
+# define DEFAULT_RECORD(i) {\
+	.hiscore = i, .time = 0, .who = 0,\
 }
 
 extern bool game_load_session(desk_t *brd, cstr_t path);
 extern void game_save_session(desk_t *brd, cstr_t path);
 
-extern bool game_load_settings(sets_t *pref, cstr_t path);
-extern void game_save_settings(sets_t *pref, cstr_t path);
+extern bool game_load_settings(setts_t *pref, cstr_t path);
+extern void game_save_settings(setts_t *pref, cstr_t path);
 
-extern void game_load_hiscores(int *list, cstr_t path);
-extern void game_save_hiscores(int *list, cstr_t path);
+extern void game_load_records(record_t list[], cstr_t path);
+extern void game_save_records(record_t list[], cstr_t path);
 #endif //_GAME_H_
