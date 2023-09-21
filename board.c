@@ -516,60 +516,98 @@ void _board_fill_pool(void)
 	Session.iball = 0;
 }
 
-static int scan_Hline(desk_t *brd, int x, int y)
+/* scaning  —  line */
+static int scan_Hline(desk_t *brd, int sx, int sy)
 {
-	while (x < BOARD_W && board_get_ball(brd, x, y) == no_ball) // skip spaces
-		x++;
-	
-	if ((BOARD_W - x) < BALLS_ROW)
-		return BOARD_W;
-	
-	int xi = x;
-	int yi = y;
-	cell_t b = board_get_ball(brd, x, y);
-	
-	while (xi < BOARD_W && joinable(board_get_ball(brd, xi, yi), &b))
-		xi++;
-	
-	bool joker = IS_BALL_JOKER(b); /* all jokers */
-	
-	//if (joker)
-	//	fprintf(stderr, "~=/ Joker /=~\nstart: %d %d\nend: %d %d\n", x, y, xi, yi);
-	
-	if ((xi - x) >= BALLS_ROW) {
-		flush_add(brd, x, y, xi - 1, y, b);
+	ball_t c, p;
+
+	int ex, sj = 0,
+	    ey, ej = 0;
+	do { 
+		p = board_get_cell(brd, sx, sy) & MSK_BALL;
+		if (IS_BALL_COLOR(p))
+			break; // find the first colored ball
+		if (IS_BALL_JOKER(p))
+			sj++; // one by one jokers counter
+		else
+			sj = 0;
+		sx++;
+	} while (sx < BOARD_DESK_W);
+
+	ex = sx + 1, // set end-x pos to next cell, after colored
+	sx = sx - sj, // set start-x pos before jokers
+	ey = sy;
+
+	while (ex < BOARD_DESK_W) { 
+		c = board_get_cell(brd, ex, ey) & MSK_BALL;
+		if (IS_BALL_JOKER(c)) {
+			ej++, c = p;
+		} else {
+			if (c != p)
+				break;
+			ej = 0;
+		}
+		ex++; // joining next
 	}
-	while (!joker && IS_BALL_JOKER(board_get_ball(brd, xi - 1, yi))) /* prepeare jokers for next try */
-		xi--;
-	
-	return xi;
+	if ((ex - sx) >= BALLS_ROW) {
+		flush_add(brd, sx, sy, ex - 1, ey, p);
+	} else
+		ex -= ej;
+#ifdef DEBUG
+	if (ej || sj)
+		fprintf(stderr, "~=/ Joker (x:%d y:%d) begin: %d end: %d /=~\n", sx, sy, sj, ej);
+#endif
+	if ((BOARD_DESK_W - ex) < BALLS_ROW)
+		return BOARD_DESK_W;
+	else
+		return ex;
 }
 
-static int scan_Vline(desk_t *brd, int x, int y)
+/* scaning  |  line */
+static int scan_Vline(desk_t *brd, int sx, int sy)
 {
-	while (y < BOARD_H && !board_get_ball(brd, x, y)) // skip spaces
-		y++;
-	
-	if ((BOARD_H - y) < BALLS_ROW)
-		return BOARD_H;
-	
-	int xi = x;
-	int yi = y;
-	cell_t b = board_get_ball(brd, x, y);
-	
-	while (yi < BOARD_H && joinable(board_get_ball(brd, xi, yi), &b))
-		yi++;
-	
-	if ((yi - y) >= BALLS_ROW) {
-		flush_add(brd, x, y, xi, yi - 1, b);
+	ball_t c, p;
+
+	int ex, sj = 0,
+	    ey, ej = 0;
+	do { 
+		p = board_get_cell(brd, sx, sy) & MSK_BALL;
+		if (IS_BALL_COLOR(p))
+			break; // find the first colored ball
+		if (IS_BALL_JOKER(p))
+			sj++; // one by one jokers counter
+		else
+			sj = 0;
+		sy++;
+	} while (sy < BOARD_DESK_H);
+
+	ey = sy + 1, // set end-y pos to next cell, after colored
+	sy = sy - sj, // set start-y pos before jokers
+	ex = sx;
+
+	while (ey < BOARD_DESK_H) { 
+		c = board_get_cell(brd, ex, ey) & MSK_BALL;
+		if (IS_BALL_JOKER(c)) {
+			ej++, c = p;
+		} else {
+			if (c != p)
+				break;
+			ej = 0;
+		}
+		ey++; // joining next
 	}
-	
-	bool joker = IS_BALL_JOKER(b); /* all jokers */
-	
-	while (!joker && IS_BALL_JOKER(board_get_ball(brd, xi, yi - 1))) /* prepeare jokers for next try */
-		yi--;
-	
-	return yi;
+	if ((ey - sy) >= BALLS_ROW) {
+		flush_add(brd, sx, sy, ex, ey - 1, p);
+	} else
+		ey -= ej;
+#ifdef DEBUG
+	if (ej || sj)
+		fprintf(stderr, "~=/ Joker (x:%d y:%d) begin: %d end: %d /=~\n", sx, sy, sj, ej);
+#endif
+	if ((BOARD_DESK_H - ey) < BALLS_ROW)
+		return BOARD_DESK_H;
+	else
+		return ey;
 }
 
 static int scan_Aline(desk_t *brd, int x, int y) /* /  line */

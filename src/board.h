@@ -11,6 +11,7 @@
 #define BALL_COLOR_N  7
 #define BALL_BONUS_N  4
 #define BALL_BONUS_D  5
+#define BALL_SHOOT_D  5
 
 # define MSK_mPID 0x007FF000u // ~ (2047 << 12) MAX
 # define MSK_mNUM 0x000007FFu // ~  2047 MAX
@@ -108,6 +109,10 @@ typedef struct {
 # define board_has_mpath(mov, x, y)  ((mov)->matrix[x][y] &   FL_mPATH)
 # define board_has_moves(mov)        ((mov)->state == ST_Check && (mov)->to.x != -1 && (mov)->to.y != -1)
 # define board_has_over(mov)         ((mov)->state == ST_End)
+
+# ifdef DEBUG
+extern void board_dbg_desk(desk_t *brd);
+# endif
 
 extern void board_init_desk(desk_t *brd);
 extern void board_init_move(move_t *mov, int nb);

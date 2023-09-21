@@ -4,11 +4,13 @@ VERTITLE := $(NAME)-$(VERSION)-$(shell uname -m)
 BUILDVER := $(head -c7 .git/FETCH_HEAD)
 COMPILER := @@CC@@
 INSTDIR  := @@INSTDIR@@/$(NAME)
-D_ATTRS  := -DCL_VER=\"$(VERSION)\"
 
 ifdef COMPILER
 CC       := $(COMPILER)
 endif
+
+CFLAGS   := @@CFLAGS@@ $(shell sdl2-config --cflags) -DCL_VER=\"$(VERSION)\"
+LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer -lSDL2_ttf
 
 SRC      := main.c
 OBJ      := $(patsubst %.c, %.o, $(SRC))
@@ -46,7 +48,7 @@ tar: all
 
 else ## Other UNIX
 
-D_ATTRS := $(D_ATTRS) -D_POSIX_C_SOURCE=200809L
+CFLAGS += -D_POSIX_C_SOURCE=200809L
 
 ifeq ($(shell which ./color-lines.desktop),)
 desktop:
@@ -67,8 +69,8 @@ tar: all desktop
 
 endif
 
-CFLAGS   := @@CFLAGS@@ $(shell sdl2-config --cflags)
-LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer -lSDL2_ttf
+debug: CFLAGS += -DDEBUG
+debug: color-lines
 
 color-lines: $(OBJ)
 	$(CC) -o $(@) $(CFLAGS) $(^) $(LDFLAGS)
@@ -76,7 +78,7 @@ color-lines: $(OBJ)
 	rm -f *.o
 
 $(OBJ): %.o : %.c
-	$(CC) -c $(<) $(I) $(CFLAGS) $(D_ATTRS)
+	$(CC) -c $(<) $(I) $(CFLAGS)
 
 tar.lzma: tar
 	lzma -9 dist/$(VERTITLE).tar

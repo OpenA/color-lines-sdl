@@ -1169,9 +1169,13 @@ static void game_restart(bool rel)
 	if (!rel) {
 		board_init_desk(&Board);
 		board_fill_pool(&Board);
+# ifdef DEBUG
+		board_dbg_desk(&Board);
+# else
 		for (int i = 0; i < BOARD_POOL_N; i++)
 			board_fill_desk(&Board, i, BOARD_DESK_N - i);
 		board_fill_pool(&Board);
+# endif
 	}
 	board_init_move(&Move , fetch_game_board(rel));
 	game_init();
@@ -1211,7 +1215,8 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 # ifdef DEBUG
-	fprintf(stderr, "- found config:   %s\n\n", cfg_dir.path);
+	fprintf(stderr, "- found config:   %s\n\n %s\n\n", cfg_dir.path,
+		"Note: in debug-mode progress will not be saved.");
 # else
 	rel = game_load_session(&Board , _getfpath(cfg_dir, "session"));
 	      game_load_records(Records, _getfpath(cfg_dir, "records"));

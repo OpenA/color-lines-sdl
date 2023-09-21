@@ -16,6 +16,13 @@
 	{ .x = x - 1, .y = y - 1 },\
 	{ .x = x + 1, .y = y + 1 }
 
+#define SCAN_H_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 1, 0)
+#define SCAN_V_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 0, 1)
+#define SCAN_A_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 1,-1)
+#define SCAN_B_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 1, 1)
+
+#define IS_SCAN_CONTINUE(x,y) (x < BOARD_DESK_W && y >= 0 && y < BOARD_DESK_H)
+
 static inline pos_t new_rand_pos(desk_t *brd, int free_n)
 {
 	int x, y, i = rand() % free_n;
@@ -50,6 +57,65 @@ static inline int get_mpath_num(move_t *mov, int x, int y, muid_t id)
 	if (IS_OUT_DESK(x, y) || board_get_mpid(mov, x, y) != id)
 		return 0;
 	return board_get_mnum(mov, x, y);
+}
+
+/** scaning line by giving offset
+ ** ` — `  (1,  0)
+ ** ` | `  (0,  1)
+ ** ` \ `  (1,  1)
+ ** ` / `  (1, -1)
+ **/
+static inline int scanline_by_matrix(desk_t *brd, int sx, int sy, const int x1, const int y1) 
+{
+	ball_t c, p;
+
+	int ex, sj = 0,
+	    ey, ej = 0;
+	do { 
+		p = board_get_cell(brd, sx, sy) & MSK_BALL;
+		if (IS_BALL_COLOR(p))
+			break; // find the first colored ball
+		if (IS_BALL_JOKER(p))
+			sj++; // one by one jokers counter
+		else
+			sj = 0;
+		sx += x1,
+		sy += y1;
+	} while (IS_SCAN_CONTINUE(sx,sy));
+
+	// set start (x,y) pos before jokers
+	// set end (x,y) pos to next cell, after color
+	ex = sx + x1, sx = sx - (sj * x1),
+	ey = sy + y1, sy = sy - (sj * y1);
+
+	while (IS_SCAN_CONTINUE(ex,ey)) { 
+		c = board_get_cell(brd, ex, ey) & MSK_BALL;
+		if (IS_BALL_JOKER(c)) {
+			ej++, c = p;
+		} else {
+			if (c != p)
+				break;
+			ej = 0;
+		}
+		ex += x1, // joining next
+		ey += y1;
+	}
+	// vertical scanning require "y" coordinate diffs
+	// all others checks the "x" coordinate diffs
+	int diff = x1 ? ex - sx : ey - sy;
+	if (diff >= BALL_SHOOT_D) {
+		flush_add(brd, sx, sy, ex - x1, ey - y1, p);
+	} else {
+		ex -= (ej * x1),
+		ey -= (ej * y1);
+	}
+#ifdef DEBUG
+	if (ej || sj)
+		fprintf(stderr, "~=/ Joker (x:%d y:%d) begin: %d end: %d /=~\n", sx, sy, sj, ej);
+#endif
+	// vertical scan returns next "y", all others returns next "x"
+	return x1 ? (BOARD_DESK_W - ex) < BALL_SHOOT_D ? BOARD_DESK_W : ex :
+	            (BOARD_DESK_H - ey) < BALL_SHOOT_D ? BOARD_DESK_H : ey ;
 }
 
 static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int from_y, muid_t id)
@@ -240,27 +306,27 @@ static int check_flushes(desk_t *brd)
 	
 	for (y = 0; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < BOARD_DESK_W;)
-		     x = scan_Hline(brd, x, y);
+		     x = SCAN_H_LINE(brd, x, y);
 	}
 	for (x = 0; x < BOARD_DESK_W; x++) {
 		for (y = 0; y < BOARD_DESK_H;)
-		     y = scan_Vline(brd, x, y);
+		     y = SCAN_V_LINE(brd, x, y);
 	}
 	for (y = 0; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < y;)
-		     x = scan_Aline(brd, x, y - x);
+		     x = SCAN_A_LINE(brd, x, y - x);
 	}
 	for (y = 1; y < BOARD_DESK_W; y++) {
 		for (x = y; x < BOARD_DESK_W;)
-		     x = scan_Aline(brd, x, BOARD_DESK_H - 1 - (x - y));
+		     x = SCAN_A_LINE(brd, x, BOARD_DESK_H - 1 - (x - y));
 	}
 	for (y = 0; y < BOARD_DESK_W; y++) {
 		for (x = y; x < BOARD_DESK_W;)
-		     x = scan_Bline(brd, x, x - y);
+		     x = SCAN_B_LINE(brd, x, x - y);
 	}
 	for (y = 1; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < (BOARD_DESK_W-y);)
-		     x = scan_Bline(brd, x, y + x);
+		     x = SCAN_B_LINE(brd, x, y + x);
 	}
 	return flush_nr - n;
 }
@@ -436,3 +502,23 @@ char board_next_move(desk_t *brd, move_t *mov)
 
 	return state;
 }
+
+#ifdef DEBUG
+void board_dbg_desk(desk_t *brd)
+{
+	int x,y,b[] = {
+		0,2,0,0,0,0,0,0,0,
+		3,2,8,9,5,5,0,5,0,
+		0,0,0,0,0,0,0,0,0,
+		0,2,3,0,0,9,0,0,0,
+		0,8,0,3,4,0,0,0,0,
+		0,2,0,4,3,0,2,0,0,
+		0,0,4,0,0,0,0,0,0,
+		0,0,0,0,3,0,0,0,0,
+		8,8,8,8,8,8,8,8,0
+	};
+	for (y = 0; y < BOARD_DESK_H; y++)
+		for (x = 0; x < BOARD_DESK_W; x++)
+			board_set_cell(brd, x, y, b[(x + y * BOARD_DESK_W)]);
+}
+#endif
