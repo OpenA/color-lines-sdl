@@ -222,8 +222,12 @@ static int act_boom_ball(desk_t *brd, move_t *mov, int x, int y)
 			n++;
 		}
 	}
+#if 0
+	board_set_cell(brd, x, y, no_ball);
+	mov->free_n++;
+#else
 	board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
-
+#endif
 	return n + 1;
 }
 
@@ -244,9 +248,12 @@ static int act_paint_ball(desk_t *brd, move_t *mov, int x, int y)
 			pc++;
 		}
 	}
+#if 1
 	board_set_cell(brd, x, y, no_ball);
-	//board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
-
+	mov->free_n++;
+#else
+	board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
+#endif
 	return pc;
 }
 
@@ -345,9 +352,10 @@ static int act_remove_balls(desk_t *brd, move_t *mov) {
 
 			if (board_has_mball(mov, x, y)) {
 				if (IS_BALL_COLOR(b) || IS_BALL_JOKER(b))
-					k += n, r++;
+					k += n;
 				if (b == ball_joker)
 					d *= 2;
+				r++;
 				board_set_cell(brd, x, y, no_ball);
 				print_dbg(" (%d) :", n);
 			} else if (IS_BALL_COLOR(b) && board_has_flush(mov, b)) {
@@ -510,13 +518,13 @@ char board_next_move(desk_t *brd, move_t *mov)
 	case ST_FillPool:
 		board_fill_pool(brd);
 		state = (free_n == BOARD_DESK_N ? ST_FillDesk : ST_Idle);
-		pool_i = 0;
+		mov->pool_i = 0;
 		break;
 	case ST_FillDesk:
 		if (free_n) {
 			board_fill_desk(brd, pool_i, free_n);
-			flags &= ~FL_QUEUE, free_n--;
-			state  =  ST_Check, pool_i++;
+			flags &= ~FL_QUEUE, mov->free_n--;
+			state  =  ST_Check, mov->pool_i++;
 		} else
 			state = ST_End;
 		break;
@@ -534,7 +542,7 @@ char board_next_move(desk_t *brd, move_t *mov)
 		mov->to.y = -1;
 		break;
 	case ST_Remove:
-		/**/free_n += act_remove_balls(brd, mov);
+		mov->free_n += act_remove_balls(brd, mov);
 		if (flags & FL_QUEUE)
 			state = ST_Idle;
 		else if (pool_i < BOARD_POOL_N)
@@ -545,8 +553,8 @@ char board_next_move(desk_t *brd, move_t *mov)
 	case ST_End:
 	default: /* Game Over */
 	}
-	mov->state = state, mov->free_n = free_n;
-	mov->flags = flags, mov->pool_i = pool_i;
+	mov->state = state;
+	mov->flags = flags;
 
 	return state;
 }
