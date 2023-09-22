@@ -213,7 +213,7 @@ static int act_boom_ball(desk_t *brd, move_t *mov, int x, int y)
 	{
 		ball_t c = board_get_ball(brd, p[i].x, p[i].y);
 
-		if (c == no_ball)
+		if (c == no_ball || board_has_mball(mov, p[i].x, p[i].y))
 			continue;
 		if (c == ball_bomb1) {
 			n += act_boom_ball(brd, mov, p[i].x, p[i].y);
