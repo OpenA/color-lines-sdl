@@ -27,6 +27,13 @@
 #define BONUS_BLINKS  4
 #define BONUS_TIMER  40
 
+#define BOARD_W 9
+#define BOARD_H 9
+
+#define POOL_SIZE  3
+#define COLORS_NR  7
+#define BONUSES_NR 4
+#define BALLS_NR  (COLORS_NR + BONUSES_NR)
 
 extern void track_switch(void);
 

@@ -11,15 +11,16 @@
 #define BALL_COLOR_N  7
 #define BALL_BONUS_N  4
 #define BALL_BONUS_D  5
-#define BALL_SHOOT_D  5
+#define BALL_COLOR_D  5
 
 # define MSK_mPID 0x007FF000u // ~ (2047 << 12) MAX
 # define MSK_mNUM 0x000007FFu // ~  2047 MAX
 # define MSK_BALL 0x0F
 # define MSK_ATTR 0xF0
 
-# define FL_DELAY 0x40
+# define FL_QUEUE 0x80
 # define FL_mPATH 0x00000800u
+# define FL_mBALL 0x00800000u
 
 typedef enum {
 	no_ball = 0, ball1, ball2, ball3, ball4, ball5, ball6, ball7,
@@ -59,7 +60,7 @@ typedef struct {
 	        pool[BOARD_POOL_N];
 
 	unsigned int score, playtime;
-	unsigned char dmul, delta;
+	unsigned char dmul, user_id;
 } desk_t;
 
 typedef enum {
@@ -79,23 +80,23 @@ typedef struct {
 	pos_t from, to;
 
 	unsigned short free_n, pool_i, flush_n;
-	unsigned char state, flags;
+	unsigned char state, flags, flush_c;
 } move_t;
 
 /* BOARD GETTERS */
 # define board_get_score(brd)         (brd)->score
-# define board_get_delta(brd)         (brd)->delta
+# define board_get_delta(brd)         (brd)->dmul
 # define board_get_cell(brd, x, y)    (brd)->cells[x][y]
 # define board_get_pool(brd, i)       (brd)->pool [i]
 # define board_get_time(brd)          (brd)->playtime
-# define board_get_dmul(brd)          (brd)->dmul
+# define board_get_user(brd)          (brd)->user_id
 /* BOARD SETTERS */
 # define board_set_score(brd, s)      (brd)->score = s
-# define board_set_delta(brd, d)      (brd)->delta = d
+# define board_set_delta(brd, d)      (brd)->dmul = d
 # define board_set_cell(brd, x, y, c) (brd)->cells[x][y] = c
 # define board_set_pool(brd, i, c)    (brd)->pool [i] = c
 # define board_set_time(brd, t)       (brd)->playtime = t
-# define board_set_dmul(brd, m)       (brd)->dmul = m
+# define board_set_user(brd, id)      (brd)->user_id = id
 /* MOVE PATH GETTERS */
 # define board_get_mnum(mov, x, y)   ((mov)->matrix[x][y] & MSK_mNUM)
 # define board_get_mpid(mov, x, y)   ((mov)->matrix[x][y] & MSK_mPID)
@@ -107,11 +108,18 @@ typedef struct {
 # define board_add_mpath(mov, x, y)   (mov)->matrix[x][y] |=  FL_mPATH
 # define board_del_mpath(mov, x, y)   (mov)->matrix[x][y] &= ~FL_mPATH
 # define board_has_mpath(mov, x, y)  ((mov)->matrix[x][y] &   FL_mPATH)
+# define board_has_mball(mov, x, y)  ((mov)->matrix[x][y] &   FL_mBALL)
+# define board_add_flush(mov, b)      (mov)->flush_c |= (1 << b)
+# define board_del_flush(mov)         (mov)->flush_c  = (mov)->flush_n = 0
+# define board_has_flush(mov, b)     ((mov)->flush_c &  (1 << b))
 # define board_has_moves(mov)        ((mov)->state == ST_Check && (mov)->to.x != -1 && (mov)->to.y != -1)
 # define board_has_over(mov)         ((mov)->state == ST_End)
 
 # ifdef DEBUG
+#  define print_dbg printf
 extern void board_dbg_desk(desk_t *brd);
+# else
+#  define print_dbg (void)
 # endif
 
 extern void board_init_desk(desk_t *brd);

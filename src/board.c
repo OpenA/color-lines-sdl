@@ -1,6 +1,5 @@
 
 #include "board.h"
-#include "../board.c"
 
 #define MATRIX_NEIR_N 4
 #define MATRIX_NEIR(x,y) \
@@ -16,10 +15,10 @@
 	{ .x = x - 1, .y = y - 1 },\
 	{ .x = x + 1, .y = y + 1 }
 
-#define SCAN_H_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 1, 0)
-#define SCAN_V_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 0, 1)
-#define SCAN_A_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 1,-1)
-#define SCAN_B_LINE(brd, x,y) scanline_by_matrix(brd, x,y, 1, 1)
+#define SCAN_H_LINE(brd,mov, x,y) scanline_by_matrix(brd,mov, x,y, 1, 0)
+#define SCAN_V_LINE(brd,mov, x,y) scanline_by_matrix(brd,mov, x,y, 0, 1)
+#define SCAN_A_LINE(brd,mov, x,y) scanline_by_matrix(brd,mov, x,y, 1,-1)
+#define SCAN_B_LINE(brd,mov, x,y) scanline_by_matrix(brd,mov, x,y, 1, 1)
 
 #define IS_SCAN_CONTINUE(x,y) (x < BOARD_DESK_W && y >= 0 && y < BOARD_DESK_H)
 
@@ -65,20 +64,21 @@ static inline int get_mpath_num(move_t *mov, int x, int y, muid_t id)
  ** ` \ `  (1,  1)
  ** ` / `  (1, -1)
  **/
-static inline int scanline_by_matrix(desk_t *brd, int sx, int sy, const int x1, const int y1) 
+static inline int scanline_by_matrix(desk_t *brd, move_t *mov, int sx, int sy, const int x1, const int y1)
 {
 	ball_t c, p;
 
-	int ex, sj = 0,
+	int ex, sj = 0, fc = 0,
 	    ey, ej = 0;
 	do { 
 		p = board_get_cell(brd, sx, sy) & MSK_BALL;
 		if (IS_BALL_COLOR(p))
 			break; // find the first colored ball
 		if (IS_BALL_JOKER(p))
+			fc += (p == ball_flush),
 			sj++; // one by one jokers counter
 		else
-			sj = 0;
+			sj = fc = 0;
 		sx += x1,
 		sy += y1;
 	} while (IS_SCAN_CONTINUE(sx,sy));
@@ -91,6 +91,7 @@ static inline int scanline_by_matrix(desk_t *brd, int sx, int sy, const int x1, 
 	while (IS_SCAN_CONTINUE(ex,ey)) { 
 		c = board_get_cell(brd, ex, ey) & MSK_BALL;
 		if (IS_BALL_JOKER(c)) {
+			fc += (c == ball_flush),
 			ej++, c = p;
 		} else {
 			if (c != p)
@@ -102,20 +103,29 @@ static inline int scanline_by_matrix(desk_t *brd, int sx, int sy, const int x1, 
 	}
 	// vertical scanning require "y" coordinate diffs
 	// all others checks the "x" coordinate diffs
-	int diff = x1 ? ex - sx : ey - sy;
-	if (diff >= BALL_SHOOT_D) {
-		flush_add(brd, sx, sy, ex - x1, ey - y1, p);
+	int diff  = x1 ? ex - sx : ey - sy;
+	if (diff >= BALL_COLOR_D) {
+		int x = sx, i,
+		    y = sy, n;
+		for(i = 0; i < diff; x += x1, y += y1, i++) {
+			n = board_get_muid(mov, x, y) & FL_mBALL ?
+			    board_get_mnum(mov, x, y) : 0;
+			    board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, (n + 1));
+		}
+		if (fc != 0)
+			board_add_flush(mov, p);
+		mov->flush_n++;
 	} else {
 		ex -= (ej * x1),
 		ey -= (ej * y1);
 	}
 #ifdef DEBUG
 	if (ej || sj)
-		fprintf(stderr, "~=/ Joker (x:%d y:%d) begin: %d end: %d /=~\n", sx, sy, sj, ej);
+		printf("~=/ Joker (x:%d y:%d) begin: %d end: %d /=~\n", sx, sy, sj, ej);
 #endif
 	// vertical scan returns next "y", all others returns next "x"
-	return x1 ? (BOARD_DESK_W - ex) < BALL_SHOOT_D ? BOARD_DESK_W : ex :
-	            (BOARD_DESK_H - ey) < BALL_SHOOT_D ? BOARD_DESK_H : ey ;
+	return x1 ? (BOARD_DESK_W - ex) < BALL_COLOR_D ? BOARD_DESK_W : ex :
+	            (BOARD_DESK_H - ey) < BALL_COLOR_D ? BOARD_DESK_H : ey ;
 }
 
 static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int from_y, muid_t id)
@@ -163,15 +173,15 @@ static void normalize_move_matrix(move_t *mov, int x, int y, int from_x, int fro
 	} while (n != 1);
 
 # ifdef DEBUG /* =======> */
-	fprintf(stdout, "\n=>\n");
-	for (y = 0; y < BOARD_DESK_H; y ++) {
-		for (x = 0; x < BOARD_DESK_W; x ++) {
+	printf("\nFollow Path >>\n");
+	for (y = 0; y < BOARD_DESK_H; y++) {
+		for (x = 0; x < BOARD_DESK_W; x++) {
 			if (board_has_mpath(mov, x, y))
-				fprintf(stdout, " %02d :", board_get_mnum(mov, x, y));
-			else	
-				fprintf(stdout, "    :");
+				printf(" %02d :", board_get_mnum(mov, x, y));
+			else
+				printf("    :");
 		}
-		fprintf(stdout, "\n---------------------------------------------\n");
+		printf("\n---------------------------------------------\n");
 	}
 # endif /* <======= */
 }
@@ -192,35 +202,10 @@ static inline int act_mark_cell(desk_t *brd, move_t *mov, int x, int y, int pN, 
 	return n;
 }
 
-static int act_boom_ball(desk_t *brd, int x, int y)
+// returns the number of destroyed balls
+static int act_boom_ball(desk_t *brd, move_t *mov, int x, int y)
 {
 	const pos_t p[] = { MATRIX_DIST(x,y) };
-
-	int i, n = 0;
-
-	for (i = 0; i < MATRIX_DIST_N; i++)
-	{
-		cell_t c = board_get_ball(brd, p[i].x, p[i].y);
-
-		if (c == no_ball)
-			continue;
-		if (c == ball_bomb1) {
-			n += act_boom_ball(brd, p[i].x, p[i].y);
-		} else {
-			board_set_cell(brd, p[i].x, p[i].y, no_ball);
-			brd->delta += c != ball_brush;
-			n++;
-		}
-	}
-	board_set_cell(brd, x, y, no_ball);
-
-	return n + 1;
-}
-
-static int act_paint_ball(desk_t *brd, int x, int y)
-{
-	const pos_t p[] = { MATRIX_DIST(x,y) };
-	const cell_t nc = NEW_COLOR_BALL(rand());
 
 	int i, n = 0;
 
@@ -228,14 +213,41 @@ static int act_paint_ball(desk_t *brd, int x, int y)
 	{
 		ball_t c = board_get_ball(brd, p[i].x, p[i].y);
 
-		if (IS_BALL_COLOR(c)) {
-			board_set_cell(brd, p[i].x, p[i].y, nc);
+		if (c == no_ball)
+			continue;
+		if (c == ball_bomb1) {
+			n += act_boom_ball(brd, mov, p[i].x, p[i].y);
+		} else {
+			board_set_muid(mov, p[i].x, p[i].y, FL_mBALL|FL_mPATH, (c != ball_brush));
 			n++;
 		}
 	}
-	board_set_cell(brd, x, y, no_ball);
+	board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
 
-	return 1;
+	return n + 1;
+}
+
+// returns the number of repaint balls
+static int act_paint_ball(desk_t *brd, move_t *mov, int x, int y)
+{
+	const pos_t p[] = { MATRIX_DIST(x,y) };
+	const cell_t nc = NEW_COLOR_BALL(rand());
+
+	int i, pc = 0;
+
+	for (i = 0; i < MATRIX_DIST_N; i++)
+	{
+		ball_t c = board_get_ball(brd, p[i].x, p[i].y);
+
+		if (IS_BALL_COLOR(c)) {
+			board_set_cell(brd, p[i].x, p[i].y, nc);
+			pc++;
+		}
+	}
+	board_set_cell(brd, x, y, no_ball);
+	//board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
+
+	return pc;
 }
 
 static bool act_move_ball(desk_t *brd, move_t *mov)
@@ -287,48 +299,92 @@ static bool act_move_ball(desk_t *brd, move_t *mov)
 	return false;
 }
 
-static int check_bombs(desk_t *brd, int x, int y)
+static int act_scan_flushes(desk_t *brd, move_t *mov)
 {
-	ball_t b = board_get_ball(brd, x, y);
-	int n = 0;
-
-	/*  */ if (b == ball_bomb1) {
-		n += act_boom_ball(brd, x, y);
-	} else if (b == ball_brush) {
-		n += act_paint_ball(brd, x, y);
-	}
-	return n;
-}
-
-static int check_flushes(desk_t *brd)
-{
-	int x, y, n = flush_nr;
+	int x, y, n = mov->flush_n;
 	
 	for (y = 0; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < BOARD_DESK_W;)
-		     x = SCAN_H_LINE(brd, x, y);
+		     x = SCAN_H_LINE(brd, mov, x, y);
 	}
 	for (x = 0; x < BOARD_DESK_W; x++) {
 		for (y = 0; y < BOARD_DESK_H;)
-		     y = SCAN_V_LINE(brd, x, y);
+		     y = SCAN_V_LINE(brd, mov, x, y);
 	}
 	for (y = 0; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < y;)
-		     x = SCAN_A_LINE(brd, x, y - x);
+		     x = SCAN_A_LINE(brd, mov, x, y - x);
 	}
 	for (y = 1; y < BOARD_DESK_W; y++) {
 		for (x = y; x < BOARD_DESK_W;)
-		     x = SCAN_A_LINE(brd, x, BOARD_DESK_H - 1 - (x - y));
+		     x = SCAN_A_LINE(brd, mov, x, BOARD_DESK_H - 1 - (x - y));
 	}
 	for (y = 0; y < BOARD_DESK_W; y++) {
 		for (x = y; x < BOARD_DESK_W;)
-		     x = SCAN_B_LINE(brd, x, x - y);
+		     x = SCAN_B_LINE(brd, mov, x, x - y);
 	}
 	for (y = 1; y < BOARD_DESK_H; y++) {
 		for (x = 0; x < (BOARD_DESK_W-y);)
-		     x = SCAN_B_LINE(brd, x, y + x);
+		     x = SCAN_B_LINE(brd, mov, x, y + x);
 	}
-	return flush_nr - n;
+	return mov->flush_n - n;
+}
+
+static int act_remove_balls(desk_t *brd, move_t *mov) {
+
+	int x, r = 0, d = board_get_delta(brd),
+	    y, k = 0, s = board_get_score(brd);
+
+	print_dbg("\nFlushing Balls >>\n");
+
+	for (y = 0; y < BOARD_DESK_H; y++) {
+		for (x = 0; x < BOARD_DESK_W; x++)
+		{
+			ball_t b = board_get_cell(brd, x, y) & MSK_BALL;
+			int    n = board_get_mnum(mov, x, y);
+
+			if (board_has_mball(mov, x, y)) {
+				if (IS_BALL_COLOR(b) || IS_BALL_JOKER(b))
+					k += n, r++;
+				if (b == ball_joker)
+					d *= 2;
+				board_set_cell(brd, x, y, no_ball);
+				print_dbg(" (%d) :", n);
+			} else if (IS_BALL_COLOR(b) && board_has_flush(mov, b)) {
+				k++, r++;
+				board_set_cell(brd, x, y, no_ball);
+				print_dbg(" (1) :");
+			} else {
+				print_dbg("     :");
+			}
+			board_set_muid(mov, x, y, 0,0);
+		}
+		print_dbg("\n------------------------------------------------------\n");
+	}
+	board_set_score(brd, (k * d) + s);
+	board_set_delta(brd, (r > 0) + d);
+	board_del_flush(mov);
+	return r;
+}
+
+static bool act_check_balls(desk_t *brd, move_t *mov)
+{
+	int x = mov->to.x, rc = 0,
+	    y = mov->to.y;
+
+	ball_t b = board_get_ball(brd, x, y);
+	bool full_scan = true;
+
+	if (b == ball_bomb1) {
+		full_scan = false;
+		rc += act_boom_ball(brd, mov, x, y);
+	} else if (b == ball_brush) {
+		full_scan = act_paint_ball(brd, mov, x, y);
+		rc++;
+	}
+	if (full_scan)
+		rc += act_scan_flushes(brd, mov);
+	return rc != 0;
 }
 
 void board_init_desk(desk_t *brd)
@@ -343,9 +399,9 @@ void board_init_desk(desk_t *brd)
 	for (i = 0; i < BOARD_POOL_N; i++)
 		board_set_pool(brd, i, no_ball);
 	board_set_score( brd, 0 );
-	board_set_delta( brd, 0 );
+	board_set_delta( brd, 1 );
 	board_set_time ( brd, 0 );
-	board_set_dmul ( brd, 1 );
+	board_set_user ( brd, 0 );
 }
 
 void board_init_move(move_t *mov, int nb)
@@ -359,7 +415,8 @@ void board_init_move(move_t *mov, int nb)
 	}
 	mov->from.x  = mov->to.x = -1;
 	mov->from.y  = mov->to.y = -1;
-	mov->flush_n = mov->pool_i = mov->flags = 0;
+	mov->flush_c = mov->flags = 0;
+	mov->flush_n = mov->pool_i = 0;
 
 	if (BOARD_DESK_N <= nb) {
 		mov->free_n = 0;
@@ -436,8 +493,6 @@ char board_next_move(desk_t *brd, move_t *mov)
 	unsigned char  flags  = mov->flags , state  = mov->state;
 	unsigned short free_n = mov->free_n, pool_i = mov->pool_i;
 
-	int rN = 0;
-
 	switch(state) {
 	case ST_Idle:
 		state = (free_n == BOARD_DESK_N ? ST_FillDesk :
@@ -446,7 +501,7 @@ char board_next_move(desk_t *brd, move_t *mov)
 	case ST_Moving:
 		if (act_move_ball(brd, mov)) {
 			state  = ST_Check;
-			flags |= FL_DELAY;
+			flags |= FL_QUEUE;
 			mov->from.x = -1;
 			mov->from.y = -1;
 		} else
@@ -460,21 +515,17 @@ char board_next_move(desk_t *brd, move_t *mov)
 	case ST_FillDesk:
 		if (free_n) {
 			board_fill_desk(brd, pool_i, free_n);
-			flags &= ~FL_DELAY, free_n--;
+			flags &= ~FL_QUEUE, free_n--;
 			state  =  ST_Check, pool_i++;
 		} else
 			state = ST_End;
 		break;
 	case ST_Check:
-		brd->delta = 0;
-		if (flags & FL_DELAY) {
-			rN = check_bombs(brd, mov->to.x, mov->to.y);
-			free_n += rN;
-		}
-		if (rN || check_flushes(brd))
+		if (act_check_balls(brd, mov))
 			state = ST_Remove;
-		else if (flags & FL_DELAY)
-			state = ST_FillDesk, brd->dmul = 1;
+		else if (flags & FL_QUEUE)
+			board_set_delta(brd, 1),
+			state = ST_FillDesk;
 		else if (pool_i < BOARD_POOL_N)
 			state = ST_FillDesk;
 		else
@@ -483,11 +534,8 @@ char board_next_move(desk_t *brd, move_t *mov)
 		mov->to.y = -1;
 		break;
 	case ST_Remove:
-		rN = flushes_remove(brd);
-		brd->score += brd->delta * brd->dmul;
-		if (rN)
-			free_n += rN, brd->dmul++;
-		if (flags & FL_DELAY)
+		/**/free_n += act_remove_balls(brd, mov);
+		if (flags & FL_QUEUE)
 			state = ST_Idle;
 		else if (pool_i < BOARD_POOL_N)
 			state = ST_FillDesk;

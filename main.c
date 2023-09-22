@@ -414,21 +414,6 @@ void game_process_board(void)
 		snd_play(play_snd, 1);
 }
 
-void game_init(void)
-{
-	memset(game_board, 0, sizeof( game_board ));
-	memset(game_pool , 0, sizeof( game_pool  ));
-	memset(flushes   , 0, sizeof( flushes    ));
-
-	flush_nr = 0;
-
-	for (int y = 0; y < BOARD_H; y ++) {
-		for (int x = 0; x < BOARD_W; x++) {
-			game_board[x][y].reDraw = false;
-		}
-	}
-}
-
 unsigned short game_display_board(void)
 {
 	unsigned short out = 0;
@@ -803,6 +788,9 @@ void draw_ball_jump(int n, int x, int y, int num)
 
 static int fetch_game_board(bool rel)
 {
+	memset(game_board, 0, sizeof( game_board ));
+	memset(game_pool , 0, sizeof( game_pool  ));
+
 	int x, y, nb = 0;
 
 	for (y = 0; y < BOARD_H; y++) {
@@ -815,6 +803,7 @@ static int fetch_game_board(bool rel)
 				nb++;
 			}
 			game_board[x][y].cell = b;
+			game_board[x][y].reDraw = false;
 		}
 	}
 	return nb;
@@ -967,7 +956,7 @@ static void show_score(void)
 
 	int w, x, h   = gfx_font_height();
 	int new_score = board_get_score(&Board),
-	         dmul = board_get_dmul (&Board) - 1;
+	         dmul = board_get_delta(&Board) - 1;
 
 	if (dmul < cur_mul)
 		cur_mul = dmul;
@@ -1178,10 +1167,9 @@ static void game_restart(bool rel)
 # endif
 	}
 	board_init_move(&Move , fetch_game_board(rel));
-	game_init();
 	draw_board();
 	cur_score = rel ? board_get_score(&Board) - 1 : -1;
-	cur_mul   = rel ? board_get_dmul (&Board) - 1 :  0;
+	cur_mul   = rel ? board_get_delta(&Board) - 1 :  0;
 	draw_Timer_digit(0, NULL);
 	show_score();
 	show_hiscores();
