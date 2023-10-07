@@ -4,19 +4,42 @@
 # include "board.c"
 # define _GAME_H_
 
-# define FL_PREF_LOOP 0x01
+enum SND_T {
+	SND_Click = 0,
+	SND_Fadeout,
+	SND_Bonus,
+	SND_Boom,
+	SND_Paint,
+	SND_Hiscore,
+	SND_Gameover
+};
+
+# ifdef USE_OPENAL
+#  include "sound_oal.h"
+# else
+#  include "sound_sdl.h"
+# endif
+
+/* Player Preferences */
+# define FL_PREF_BGM_LOOP 0x01
+# define FL_PREF_BGM_PLAY 0x02
+# define FL_PREF_SFX_MUTE 0x04
 
 typedef struct {
-	short volume;
-	char track, flags;
+	unsigned char sfx_vol, bgm_vol, track_num, flags;
 	int _reservs;
-} setts_t;
+} prefs_t;
 
-# define DEFAULT_SETTS() {\
-	.volume = 256, .track = 0,\
-	._reservs = 0, .flags = 0,\
+# define DEFAULT_PREFS() {\
+	.sfx_vol = 100, .track_num = 0,\
+	.bgm_vol = 100, .flags = 0, ._reservs = 0\
 }
 
+# define game_prefs_add(pref,FL) ((pref)->flags |=  FL)
+# define game_prefs_has(pref,FL) ((pref)->flags &   FL)
+# define game_prefs_del(pref,FL) ((pref)->flags &= ~FL)
+
+/* Player Records */
 typedef struct {
 	unsigned int hiscore, time;
 	unsigned char who;
@@ -25,13 +48,16 @@ typedef struct {
 # define DEFAULT_RECORD(i) {\
 	.hiscore = i, .time = 0, .who = 0,\
 }
-
+/* Load/Save last board session */
 extern bool game_load_session(desk_t *brd, cstr_t path);
 extern void game_save_session(desk_t *brd, cstr_t path);
-
-extern bool game_load_settings(setts_t *pref, cstr_t path);
-extern void game_save_settings(setts_t *pref, cstr_t path);
-
+/* Read/Write user settings */
+extern bool game_load_settings(prefs_t *pref, cstr_t path);
+extern void game_save_settings(prefs_t *pref, cstr_t path);
+/* Load/Save records tab */
 extern void game_load_records(record_t list[], cstr_t path);
 extern void game_save_records(record_t list[], cstr_t path);
+
+/* Init game subsystem */
+extern SUCESS game_init_sound(sound_t *snd, prefs_t *pref, path_t game_dir);
 #endif //_GAME_H_

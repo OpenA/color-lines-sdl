@@ -1,7 +1,7 @@
 #include "main.h"
 #include "src/game.c"
 #include "graphics.c"
-#include "sound.c"
+#include "src/config.h"
 
 #define GFX_UPDATE    0x321
 #define SCORES_W     (BOARD_X - TILE_W - SCORES_X - 40)
@@ -9,17 +9,24 @@
 #define BOARD_WIDTH  (BOARD_W * TILE_W)
 #define BOARD_HEIGHT (BOARD_H * TILE_H)
 
-char path_gfx[ SYS_PATH_L ],
-     path_snd[ SYS_PATH_L ];
+char path_gfx[ SYS_PATH_L ];
 
 /* Game Hiscores */
 static record_t Records[HISCORES_NR] = {
 	DEFAULT_RECORD(50), DEFAULT_RECORD(40),
 	DEFAULT_RECORD(30), DEFAULT_RECORD(20), DEFAULT_RECORD(10)
 };
-static setts_t Prefs = DEFAULT_SETTS();
+
+/* BGM Plylist */
+static struct playlist {
+	const char *file, *title;
+} trackList[] = { MUSIC_TRACKS_LIST() };
+
+static sound_t Sound;
+static prefs_t Prefs = DEFAULT_PREFS();
 static desk_t Board;
 static move_t Move;
+static path_t GameDir;
 
 static struct __STAT__ {
 	bool running, game_over, update_needed, store_prefs, store_hiscore;
@@ -32,7 +39,7 @@ static struct __STAT__ {
 };
 
 typedef struct __ELS__ {
-	char name[ 24 ];
+	char name[ 128 ];
 	int x, y, w, h;
 	img_t on, off;
 	float temp;
@@ -216,7 +223,7 @@ static const char *game_print(const char *str)
 	return ptr;
 }
 
-char info_text[] = " -= Color Lines v"CL_VER" =-\n\n"
+char info_text[] = " -= Color Lines v"CL_VERSION_STRING". =-\n\n"
 	"Try to arrange balls of the same color in vertical, "
 	"horizontal or diagonal lines."
 	"To move a ball click on it to select, "
@@ -399,19 +406,19 @@ void game_process_board(void)
 				// disappearing
 				enable_effect(x, y, fadeout);
 				if (b->cell == ball_bomb1 ) {
-					play_snd = SND_BOOM;
+					play_snd = SND_Boom;
 				} else
 				if (b->cell == ball_brush) {
-					play_snd = SND_PAINT;
+					play_snd = SND_Paint;
 				} else
 				if (play_snd == 0) {
-					play_snd = SND_FADEOUT;
+					play_snd = SND_Fadeout;
 				}
 			}
 		}
 	}
 	if (play_snd)
-		snd_play(play_snd, 1);
+		sound_sfx_play(&Sound, play_snd, 1);
 }
 
 unsigned short game_display_board(void)
@@ -615,51 +622,68 @@ static void cell_to_screen(int x, int y, int *ox, int *oy)
 	}
 }
 
-static void music_switch(void)
+static void music_start(int n, path_t game_dir)
 {
-	if (Prefs.track == -1) {
-		Prefs.track = Music.temp;
-		snd_music_start(Prefs.track, Track.name, path_snd);
+	if ( n > MUSIC_TRACKS_N || !(Prefs.flags & FL_PREF_BGM_PLAY))
+		return;
+
+	cstr_t file = trackList[n].file,
+	      title = trackList[n].title;
+
+	sys_set_dpath(game_dir, MUSIC_DIR);
+
+	if (sound_bgm_play(&Sound, n, sys_get_spath(game_dir, file))) {
+		sound_set_bgm_onEnd(track_switch);
+		strcpy(Track.name, title);
+	}
+}
+
+static void toggle_music()
+{
+	bool play = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY);
+	     play ^= 1;
+
+	if (play) {
+		game_prefs_add(&Prefs, FL_PREF_BGM_PLAY);
+		music_start(Prefs.track_num, GameDir);
 		if (!Track.on)
 			draw_Track_title();
 	} else {
-		Music.temp = Prefs.track;
-		Prefs.track = -1;
-		snd_music_stop();
+		game_prefs_del(&Prefs, FL_PREF_BGM_PLAY);
+		sound_bgm_stop(&Sound);
 	}
 	status.store_prefs = true;
-	draw_Button(Music, (Prefs.track > -1));
-	gfx_update();
+	draw_Button(Music, play);
 }
 
-void toggle_loop() {
+static void toggle_loop() {
 
-	bool loop = Prefs.flags & FL_PREF_LOOP;
+	bool loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP);
 	     loop ^= 1;
 
 	if (loop)
-		Prefs.flags |= FL_PREF_LOOP;
+		game_prefs_add(&Prefs, FL_PREF_BGM_LOOP);
 	else
-		Prefs.flags &= ~FL_PREF_LOOP;
+		game_prefs_del(&Prefs, FL_PREF_BGM_LOOP);
 	status.store_prefs = true;
 	draw_Button(Loop, loop);
 }
 
 void track_switch(void)
 {
-	char tnum = Prefs.track;
-	bool loop = Prefs.flags & FL_PREF_LOOP,
+	int  tnum = Prefs.track_num;
+	bool loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP),
 	     pass = false;
 
 	if (tnum >= 0 && !(loop && !Track.hook)) {
-		if((tnum + 1) >= TRACKS_COUNT)
+		if((tnum + 1) >= MUSIC_TRACKS_N)
 			tnum = 0;
 		else
 			tnum++;
-		Prefs.track = tnum;
+		Prefs.track_num = tnum;
 		status.store_prefs = pass = true;
 	}
-	snd_music_start(tnum, Track.name, path_snd);
+	music_start(tnum, GameDir);
 	if (pass) {
 		gfx_free_image(Track.on);
 		draw_Track_title();
@@ -668,12 +692,24 @@ void track_switch(void)
 
 static int set_volume(int x)
 {
-	int pos = x < Music.w ? 0 : x > (Vol.w + Music.w) ? Vol.w : x - Music.w,
-	    val = (256 * pos) / Vol.w;
-	Prefs.volume = val;
-	if (!Music.hook)
-		snd_volume(val);
+	int pos, vol;
+	if (x < Music.w)
+		pos = 0, vol = 0;
+	else if (x > (Music.w + Vol.w))
+		pos = Vol.w, vol = 100;
+	else
+		pos = x - Music.w, vol = (pos * 100) / Vol.w;
+# ifdef DEBUG
+	if (Prefs.bgm_vol != vol)
+		printf("volume change: %d (%f)\n", vol, FP_VOL_STEP * vol);
+# endif
+	if(!sound_has_not_ready(&Sound)) {
+		sound_set_bgm_volume(&Sound, vol);
+		sound_set_sfx_volume(&Sound, vol);
+	}
 	draw_VolBar(Vol, pos);
+	Prefs.bgm_vol = vol;
+	Prefs.sfx_vol = vol;
 	status.store_prefs = true;
 	return pos + Music.w;
 }
@@ -836,10 +872,10 @@ Uint32 gameHandler(Uint32 interval, void *_)
 					draw_Msg("Game Over!", 0);
 					status.game_over = true;
 					if (check_hiscores(board_get_score(&Board))) {
-						snd_play(SND_HISCORE, 1);
+						sound_sfx_play(&Sound, SND_Hiscore, 1);
 						show_hiscores();
 					} else {
-						snd_play(SND_GAMEOVER, 1);
+						sound_sfx_play(&Sound, SND_Gameover, 1);
 					}
 					status.update_needed = true;
 				}
@@ -904,13 +940,14 @@ static void game_loop() {
 					stop_GameTimer();
 					board_wait_finish(&Board, &Move);
 					if (!board_has_over(&Move)) {
-						snd_play(
-							check_hiscores(board_get_score(&Board)) ? SND_HISCORE : SND_GAMEOVER, 1);
+						bool ok = check_hiscores(board_get_score(&Board));
+						sound_sfx_play(&Sound, ok ? SND_Hiscore : SND_Gameover, 1);
 					}
 					game_restart(false);
 				}
 				else if (is_OnElem(Music, x, y)) {
-					music_switch();
+					toggle_music();
+					refresh = true;
 				}
 				else if ((Track.hook = is_OnElem(Track, x, y))) {
 					track_switch();
@@ -973,7 +1010,7 @@ static void show_score(void)
 			Score.x = x;
 			Score.w = w;
 			if (!timer) {
-				snd_play(SND_BONUS, 1);
+				sound_sfx_play(&Sound, SND_Bonus, 1);
 				timer = BONUS_TIMER;
 			}
 		} else if (!timer) {
@@ -986,7 +1023,7 @@ static void show_score(void)
 			Score.x = x;
 			Score.w = w;
 			if (cur_score != new_score) {
-				snd_play(SND_CLICK, 1);
+				sound_sfx_play(&Sound, SND_Click, 1);
 			}
 		}
 	}
@@ -1111,7 +1148,7 @@ static void game_prep(void)
 	    fnt_w = gfx_chars_width(Restart.name);
 	int mus_w = iget_W(Music),
 	    mus_h = iget_H(Music);
-	int vol_w = iget_W(Vol), bar = Prefs.volume * vol_w / 256,
+	int vol_w = iget_W(Vol), bar = Prefs.bgm_vol * vol_w / 100,
 	    vol_h = iget_H(Vol);
 
 	Restart.w = fnt_w, Restart.x = SCORES_X + (SCORES_W - fnt_w) / 2;
@@ -1124,11 +1161,11 @@ static void game_prep(void)
 
 	Music.w = mus_w, Music.x = 0;
 	Music.h = mus_h, Music.y = SCREEN_H - mus_h;
-	draw_Button(Music, Prefs.track != -1);
+	draw_Button(Music, game_prefs_has(&Prefs, FL_PREF_BGM_PLAY));
 
 	Loop.w = iget_W(Loop), Loop.x = mus_w + 5;
 	Loop.h = iget_H(Loop), Loop.y = SCREEN_H - mus_h - Loop.h;
-	draw_Button(Loop, Prefs.flags & FL_PREF_LOOP);
+	draw_Button(Loop, game_prefs_has(&Prefs, FL_PREF_BGM_LOOP));
 
 	Info.w = iget_W(Info), Info.x = 0;
 	Info.h = iget_H(Info), Info.y = SCREEN_H - mus_h - Info.h;
@@ -1138,8 +1175,7 @@ static void game_prep(void)
 	Vol.h = vol_h, Vol.y = SCREEN_H - vol_h;
 	draw_VolBar(Vol, bar);
 
-	Music.temp = rand() % TRACKS_COUNT;
-	  Vol.temp = bar + mus_w;
+	Vol.temp = bar + mus_w;
 
 	Track.x = mus_w + vol_w + Track.temp / 2;
 	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
@@ -1179,23 +1215,21 @@ static void game_restart(bool rel)
 
 int main(int argc, char **argv) {
 
-	path_t cfg_dir, game_dir;
+	path_t cfg_dir;
 	bool rel = false;
 
 #if CL_IMG_DIR && CL_SND_DIR
 	strncat(path_gfx, CL_IMG_DIR, sizeof(CL_IMG_DIR));
-	strncat(path_snd, CL_SND_DIR, sizeof(CL_SND_DIR));
 #else
 
-	if (!SysGetExecPath(&game_dir)) {
+	if (!SysGetExecPath(&GameDir)) {
 		puts("Can't fing game directory\n");
 		return -1;
 	}
 # ifdef DEBUG
-	fprintf(stderr, "\n- found gamedir:  %s\n",game_dir.path);
+	printf("\n- found gamedir:  %s\n", GameDir.path);
 # endif
-	_strncomb(path_gfx, game_dir.path, "/gfx/"   , game_dir.len);
-	_strncomb(path_snd, game_dir.path, "/sounds/", game_dir.len);
+	_strncomb(path_gfx, GameDir.path, "gfx/", GameDir.len);
 #endif
 
 	if (!SysAcessConfigPath(&cfg_dir, "color-lines")) {
@@ -1206,11 +1240,11 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "- found config:   %s\n\n %s\n\n", cfg_dir.path,
 		"Note: in debug-mode progress will not be saved.");
 # else
-	rel = game_load_session(&Board , _getfpath(cfg_dir, "session"));
-	      game_load_records(Records, _getfpath(cfg_dir, "records"));
+	rel = game_load_session(&Board , sys_get_fpath(cfg_dir, CL_SESSION_NAME));
+	      game_load_records(Records, sys_get_fpath(cfg_dir, CL_RECORDS_NAME));
 # endif
 	// load settings before sound init
-	      game_load_settings(&Prefs, _getfpath(cfg_dir, "prefs"  ));
+	/* */ game_load_settings(&Prefs, sys_get_fpath(cfg_dir, CL_PREFS_NAME));
 
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
@@ -1223,14 +1257,8 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "graphics.c: Unable to create %dx%d window - '%s'\n", SCREEN_W, SCREEN_H, SDL_GetError());
 		return -1;
 	}
-	// Initialize Sound
-	if (snd_init(path_snd)) {
-		Music.hook = true;
-	} else {
-		snd_volume(Prefs.volume);
-		if (Prefs.track >= 0)
-			snd_music_start(Prefs.track, Track.name, path_snd);
-	}
+	if (game_init_sound(&Sound, &Prefs, GameDir))
+		music_start(Prefs.track_num, GameDir);
 	game_prep();
 	game_restart(rel);
 	game_loop();
@@ -1238,14 +1266,14 @@ int main(int argc, char **argv) {
 	board_wait_finish(&Board, &Move);
 # ifndef DEBUG
 	// save game progress
-	    game_save_session(&Board , _getfpath(cfg_dir, "session"));
+	    game_save_session(&Board , sys_get_fpath(cfg_dir, CL_SESSION_NAME));
 	if (status.store_hiscore)
-	    game_save_records(Records, _getfpath(cfg_dir, "records"));
+	    game_save_records(Records, sys_get_fpath(cfg_dir, CL_RECORDS_NAME));
 	if (status.store_prefs)
-	    game_save_settings(&Prefs, _getfpath(cfg_dir,   "prefs"));
+	    game_save_settings(&Prefs, sys_get_fpath(cfg_dir, CL_PREFS_NAME));
 # endif
 	free_game_ui();
-	snd_done();
+	sound_close_done(&Sound);
 	gfx_done();
 	SDL_Quit();
 	return 0;
