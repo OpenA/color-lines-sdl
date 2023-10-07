@@ -25,7 +25,7 @@
 	{"organ.mod"        , "PSC - Organ"             },\
 	{"lastninja.mod"    , "PSC - Last Ninja"        },\
 \
-	{"satellite.s3m"    , "PMFC - Satellite one"    },\
+	{"satellite.s3m"    , "Purple Motion - Satellite one"},\
 \
 	{"allnightalone.mod", "CORE - All Night Alone"  },\
 	{"aloneinaworld.xm" , "CORE - Alone in a World!"},\

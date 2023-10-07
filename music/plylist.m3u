@@ -60,8 +60,8 @@ ringsofmedusa.xm
 #EXTINF:20, CORE - Rusinahumppa
 rusinahumppa.mod
 
-#EXTINF:21, Purple Motion - Satellite one.
-satellite.s3m
+#EXTINF:21, CORE - Mr.Spock's Cryo-Bed
+cryobed.xm
 
 #EXTINF:22, CORE - Skogens Djur 011
 skogensdjur.xm
@@ -84,11 +84,11 @@ wonderstar.xm
 #EXTINF:28, CORE - Nice Fruit/DenkaDe
 denkade.xm
 
-#EXTINF:29, CORE - Mr.Spock's Cryo-Bed
-cryobed.xm
-
-#EXTINF:30, CORE - Generation (C)hip
+#EXTINF:29, CORE - Generation (C)hip
 genchip.xm
+
+#EXTINF:30, Purple Motion - Satellite one.
+satellite.s3m
 
 #EXTINF:31, PSC - Last Ninja
 lastninja.mod
