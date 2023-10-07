@@ -208,7 +208,12 @@ static int act_boom_ball(desk_t *brd, move_t *mov, int x, int y)
 	const pos_t p[] = { MATRIX_DIST(x,y) };
 
 	int i, n = 0;
-
+#if 0
+	board_set_cell(brd, x, y, no_ball);
+	mov->free_n++;
+#else
+	board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
+#endif
 	for (i = 0; i < MATRIX_DIST_N; i++)
 	{
 		ball_t c = board_get_ball(brd, p[i].x, p[i].y);
@@ -222,12 +227,6 @@ static int act_boom_ball(desk_t *brd, move_t *mov, int x, int y)
 			n++;
 		}
 	}
-#if 0
-	board_set_cell(brd, x, y, no_ball);
-	mov->free_n++;
-#else
-	board_set_muid(mov, x, y, FL_mBALL|FL_mPATH, 0);
-#endif
 	return n + 1;
 }
 
