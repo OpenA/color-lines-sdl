@@ -20,6 +20,17 @@ enum SND_T {
 #  include "sound_sdl.h"
 # endif
 
+enum {
+	UI_Bg = 0,
+	UI_Cell,
+	UI_BallsCollect,
+	UI_Volume,
+	UI_Music,
+	UI_Blank,
+};
+
+# include "ui.h"
+
 /* Player Preferences */
 # define FL_PREF_BGM_LOOP 0x01
 # define FL_PREF_BGM_PLAY 0x02

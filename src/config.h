@@ -57,4 +57,13 @@
 	{"cryobed.xm"       , "CORE - Mr.Spock's Cryo-Bed"},\
 	{"genchip.xm"       , "CORE - Generation (C)hip"}
 
+# define UI_DIR "vector"
+# define UI_ELEMENTS_N 5
+# define UI_ELEMENT_GET(i) (const char[][13]){\
+	"bg0.svg",\
+	"cell.svg",\
+	"cl_balls.svg",\
+	"volume.svg",\
+	"music.svg" }[i]
+
 #endif //_CONFIG_H_

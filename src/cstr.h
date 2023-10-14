@@ -4,9 +4,9 @@
 
 typedef const char* cstr_t;
 
-# define _strcomb(  dst, src, _T)     strcat( strcpy(dst, src   ), _T"\0")
-# define _strcatl(  dst, src, _T)     strcat( strcat(dst, src   ), _T"\0")
-# define _strncomb( dst, src, _T, l)  strcat(strncpy(dst, src, l), _T"\0")
+# define _strcomb(  dst, src, _T)     strcat( strcpy(dst, src   ), _T)
+# define _strcatl(  dst, src, _T)     strcat( strcat(dst, src   ), _T)
+# define _strncomb( dst, src, _T, l)  strcat(strncpy(dst, src, l), _T)
 # define _strrepl(  dst, s,   _T)    _strnrepl(dst, s, _T, sizeof(_T))
 
 static inline cstr_t _strnrepl(
