@@ -1,0 +1,31 @@
+ -+= CLASSIC LINES GAME:
+
+ Try to arrange balls of the same
+color in vertical, horizontal or
+diagonal lines.
+ To move a ball click on it to select,
+then click on destination square.
+
+ Once line has five or more balls of
+same color, that line is removed and
+you earn score points.
+ After each turn three balls randomly
+added to the board.
+
+ If board filled up, the game is over.
+ ____________________
+ There are four bonus balls:
+
+    (the Joker) ; can be used with any
+     color and multiplys score by x2.
+
+    (the Flush) ; removes all same
+     color balls from the board.
+
+    (the Brush) ; paints all nearest
+     balls in the one color.
+
+    (the Bomb) ; removes all balls
+     in nearest cells.
+
+ ~~~ Good Luck! ~~~

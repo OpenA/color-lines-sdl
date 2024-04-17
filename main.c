@@ -17,11 +17,13 @@ static record_t Records[HISCORES_NR] = {
 
 /* BGM Plylist */
 static struct playlist {
-	const char *file, *title;
-} trackList[] = { MUSIC_TRACKS_LIST() };
+	const char *title, *file;
+} trackList[] = { MUSIC_PLAYLIST };
 
 static sound_t Sound;
 static prefs_t Prefs = DEFAULT_PREFS();
+static zfont_t Fonts[FONT_NAME_N];
+static elem_t HelpGuide, MyScore;
 static desk_t Board;
 static move_t Move;
 static path_t GameDir;
@@ -53,7 +55,6 @@ static elemen_t Loop    = { .name = "loop" };
 static elemen_t Info    = { .name = "info" };
 
 int   moving_nr = 0;
-img_t pb_logo = NULL;
 img_t bg_saved = NULL;
 img_t balls[BALLS_NR][ALPHA_STEPS];
 img_t resized_balls[BALLS_NR][SIZE_STEPS];
@@ -75,19 +76,16 @@ img_t jumping_balls[BALLS_NR][JUMP_STEPS];
 	gfx_draw_bg(iBG, el.x, el.y, el.w, el.h);\
 	gfx_draw((pss ? el.on : el.off), el.x, el.y)
 
-#define draw_Msg(str, s) {\
-	int w = gfx_chars_width(str), x = BOARD_X + (BOARD_WIDTH  - w) / 2;\
-	int h = gfx_font_height()   , y = BOARD_Y + (BOARD_HEIGHT - h) / 2;\
-	gfx_draw_text(str, x, y, s);\
-}
+#define draw_Msg(str, s) \
+	game_board_msg(str, sizeof(str) - 1, s)
 
 static void draw_Track_title(void)
 {
 	gfx_draw_bg(iBG, Track.x, Track.y, Track.w, Track.h);
-	Track.on = gfx_draw_ttf_text(Track.name);
+	Track.on = ui_make_text(&Fonts[FNT_Pixil], Track.name, sizeof(Track.name));
 	Track.w  = gfx_img_w(Track.on);
 	Track.h  = gfx_img_h(Track.on);
-	gfx_draw_wh(Track.on, Track.x, Track.y, Track.w, Track.h);
+	ui_scale_image(Track.on, screen, Track.x, Track.y, 0.5);
 	gfx_update();
 }
 
@@ -119,160 +117,50 @@ void stop_GameTimer()
 	SDL_RemoveTimer( gameTimerId );
 } /* <=== END ===> */
 
-static int get_word(const char *str, char *word)
+const char help_text[] = CL_HELP,
+          about_text[] = "   -= Color Lines "CL_VERSION_STRING" =-\n"CL_ABOUT"";
+
+static void scroll_info(elem_t *el, int oy, bool save_y)
 {
-	int parsed = 0;
-	while (*str && *str != '\n' && *str != ' ') {
-		*word = *str;
-		word   ++;
-		str    ++;
-		parsed ++;
+	gfx_draw_bg(iBG, INFO_X, GAME_BOARD_Y, INFO_W, GAME_BOARD_H);
+
+	el_rect r = ui_get_el_bounds(el);
+	     r.y += oy;
+
+	if (save_y) {
+		if (r.y > GAME_BOARD_H) {
+			r.y = GAME_BOARD_H;
+		} else if (r.y < 0) {
+			r.y = 0;
+		}
+		ui_set_el_bounds(el, r);
 	}
-	while (*str == ' ') {
-		str    ++;
-		parsed ++;
-	}
-	*word = 0;
-	return parsed;
+	ui_draw_source(el->img, r, screen, INFO_X, GAME_BOARD_Y);
 }
 
-static struct _gfx_word {
-	const char *name;
-	img_t	*img;
-} gfx_words[] = {
-	{ "ball_color1", &balls[0][ALPHA_STEPS - 1] },
-	{ "ball_color2", &balls[1][ALPHA_STEPS - 1] },
-	{ "ball_color3", &balls[2][ALPHA_STEPS - 1] },
-	{ "ball_color4", &balls[3][ALPHA_STEPS - 1] },
-	{ "ball_color5", &balls[4][ALPHA_STEPS - 1] },
-	{ "ball_color6", &balls[5][ALPHA_STEPS - 1] },
-	{ "ball_color7", &balls[6][ALPHA_STEPS - 1] },
-	{ "ball_joker" , &balls[7][ALPHA_STEPS - 1] }, 
-	{ "ball_flush" , &balls[8][ALPHA_STEPS - 1] },
-	{ "ball_brush" , &balls[9][ALPHA_STEPS - 1] }, 
-	{ "ball_bomb1" , &balls[10][ALPHA_STEPS - 1] },
-	{ "pb_logo", &pb_logo },
-	{ NULL },
-};
-
-static img_t gfx_word(const char *word)
+static void toggle_game_pause(bool pause)
 {
-	int i = 0;
-	while (gfx_words[i].name) {
-		if (!strcmp(gfx_words[i].name, word)) {
-			return *gfx_words[i].img;
-		}
-		i++;
-	}
-	return NULL;
-}
-static const char *game_print(const char *str)
-{
-	int x = BOARD_X;
-	int y = BOARD_Y;
-	const char *ptr = str;
-	while (*ptr == '\n')
-		ptr++;
-	while (*ptr) {
-		int w = 0;
-		int h = gfx_font_height();
-		while (w < BOARD_WIDTH) {
-			char word[128];
-			int rc;
-			img_t img;
-			rc = get_word(ptr, word);
-//			fprintf(stderr,"get Word:%s:%d\n", word, rc);
-			img = gfx_word(word);
-			if (img) {
-				w += gfx_img_w(img);
-			} else {
-				w += gfx_chars_width(word);
-			}
-			if (w > BOARD_WIDTH)
-				break;
-			if (img) {
-				gfx_draw(img, x, y);
-				x += gfx_img_w(img) + gfx_chars_width(" ");
-				h = _max(h, gfx_img_h(img));
-			} else {	
-				strcat(word, " ");	
-				gfx_draw_text(word, x, y, 0);
-				w += gfx_chars_width(" ");
-				x += gfx_chars_width(word);
-			}
-			ptr += rc;
-			if (*ptr == '\n') {
-				ptr ++;
-				break;
-			}
-//			fprintf(stderr,"Word:%s\n", word);	
-		}
-		x  = BOARD_X;
-		y += h;
-		if (y >= BOARD_Y + BOARD_HEIGHT - 2*h) {
-			gfx_draw_text("MORE", BOARD_X, BOARD_Y + BOARD_HEIGHT - h, 0);
-			break;
-		}
-	}
-	return ptr;
-}
-
-char info_text[] = " -= Color Lines v"CL_VERSION_STRING". =-\n\n"
-	"Try to arrange balls of the same color in vertical, "
-	"horizontal or diagonal lines."
-	"To move a ball click on it to select, "
-	"then click on destination square. Once line has five or more balls "
-	"of same color, that line is removed from the board and you earn score points. "
-	"After each turn three new balls randomly added to the board.\n\n"
-	"There are four bonus balls.\n\n"
-	"ball_joker is a joker that can be used like any color ball. Joker also multiply score by two.\n\n"
-	"ball_flush acts like a joker, but when applied it also removes all balls of the same color from the board.\n\n"
-	"ball_brush paints all nearest balls in the same color.\n\n"
-	"ball_bomb1 is a bomb. It always does \"boom\"!!!\n\n"
-	"The game is over when the board is filled up.\n\n"
-	"CODE: Peter Kosyh <gloomy_pda@mail.ru>\n\n"
-	"GRAPHICS: Peter Kosyh and some files from www.openclipart.org\n\n"
-	"SOUNDS: Stealed from some linux games...\n\n"
-	"MUSIC: \"Satellite One\" by Purple Motion.\n\n"
-	"FIRST TESTING & ADVICES: my wife Ola, Sergey Kalichev...\n\n"
-	"PORTING TO M$ Windoze: Ilja Ryndin from Pinebrush\n pb_logo www.pinebrush.com\n\n"
-	"SPECIAL THANX: All UNIX world... \n\n"
-	" Good Luck!";
-
-static const char *cur_text  = info_text;
-static const char *last_text = NULL;
-
-static bool show_info_window(void)
-{
-	last_text = cur_text;
-	if (!bg_saved && !(
-		 bg_saved = gfx_grab_screen(
-			BOARD_X - TILE_W - POOL_SPACE,
-			BOARD_Y,
-			BOARD_WIDTH + TILE_W + POOL_SPACE,
-			BOARD_HEIGHT))){
-	} else if (!*cur_text) {
-		cur_text = info_text;
+	el_rect ir = ui_new_el_rect(
+		INFO_X, GAME_BOARD_Y,
+		INFO_W, GAME_BOARD_H );
+	if (pause) {
+		if(!bg_saved)
+			bg_saved = SDL_CreateRGBSurface(0, ir.w, ir.h, 16, 0xF800, 0x7E0, 0x1F, 0);
+		ui_draw_source(screen, ir, bg_saved, 0, 0);
 	} else {
-		gfx_draw_bg(iBG, BOARD_X - TILE_W - POOL_SPACE, BOARD_Y, 
-				BOARD_WIDTH + TILE_W + POOL_SPACE, BOARD_HEIGHT);
-		stop_GameTimer();
-		cur_text = game_print(cur_text);
-		draw_Button(Info, (Info.hook = true));
-		return true;
+		ir.x = ir.y = 0;
+		ui_draw_source(bg_saved, ir, screen, INFO_X, GAME_BOARD_Y);
 	}
-	return false;
 }
 
-static bool hide_info_window(void)
-{
-	cur_text = last_text ?: info_text;
-	gfx_draw(bg_saved, BOARD_X - TILE_W - POOL_SPACE, BOARD_Y);
-	draw_Button(Info, (Info.hook = false));
-	gfx_free_image(bg_saved);
-	bg_saved = 0;
-	start_GameTimer();
-	return true;
+static inline void game_board_msg(cstr_t str, const int len, float scale) {
+
+	typecr_t p, m = ui_text_rect(&Fonts[FNT_Fancy], str, len);
+	    p.offsetX = GAME_BOARD_X + (GAME_BOARD_W - m.width ) / 2,
+	    p.offsetY = GAME_BOARD_Y + (GAME_BOARD_H - m.height) / 2;
+
+	for (int i = 0; i < len; i++)
+		p = ui_draw_char(&Fonts[FNT_Fancy], screen, str[i], p);
 }
 
 typedef enum {
@@ -708,7 +596,7 @@ static int set_volume(int x)
 		sound_set_bgm_volume(&Sound, vol_i);
 		sound_set_sfx_volume(&Sound, vol_i);
 	}
-	ui_set_el_ivalue(&Elem[UI_Volume], mus_w + pos_x);
+	ui_set_el_value(&Elem[UI_Volume], ATYPE_INT, mus_w + pos_x);
 	ui_draw_Hbar(&Elem[UI_Volume], iBG, screen, pos_x);
 	Prefs.bgm_vol = vol_i;
 	Prefs.sfx_vol = vol_i;
@@ -892,10 +780,10 @@ Uint32 gameHandler(Uint32 interval, void *_)
 static void game_loop() {
 	// Main loop
 	SDL_Event event;
-
+	int sx = 0, sy = 0;
 	bool Board_touch = false, refresh = false,
 	       Vol_touch = false, running = true,
-	       Vol_hook  = false;
+	       Vol_hook  = false, paused  = false;
 
 	SDL_AddTimer(20, &gameHandler, NULL);
 	
@@ -917,17 +805,26 @@ static void game_loop() {
 				break;
 			case SDL_MOUSEMOTION:
 				Board_touch = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
-				  Vol_touch = IS_ON_ELEM(&Elem[UI_Volume], x, y);
+				  Vol_touch = ui_has_el_on_coords(&Elem[UI_Volume], x, y);
 				if (Vol_hook)
 					set_volume(x), refresh = true;
+				else if (ui_has_el_flag(&HelpGuide, INFL_MOVE)) {
+					scroll_info(&HelpGuide, sy - y, false), refresh = true;
+				}
 				break;
 			case SDL_MOUSEBUTTONUP:
 				Track.hook = Vol_hook = false;
+				if (ui_has_el_flag(&HelpGuide, INFL_MOVE)) {
+					ui_del_el_flag(&HelpGuide, INFL_MOVE);
+					scroll_info(&HelpGuide, sy - y, true), refresh = true;
+				}
+				sx = 0, sy = 0;
 				break;
 			case SDL_MOUSEBUTTONDOWN: // Button pressed
+				sx = x, sy = y;
 				if (Board_touch) {
 					if (Info.hook) {
-						refresh = show_info_window();
+						ui_add_el_flag(&HelpGuide, INFL_MOVE);
 					} else if (!board_has_over(&Move)) {
 						board_select_ball(&Board, &Move,
 							(x - BOARD_X) / TILE_W,
@@ -950,7 +847,7 @@ static void game_loop() {
 					}
 					game_restart(false);
 				}
-				else if (IS_ON_ELEM(&Elem[UI_Music], x, y)) {
+				else if (ui_has_el_on_coords(&Elem[UI_Music], x, y)) {
 					toggle_music();
 					refresh = true;
 				}
@@ -962,16 +859,27 @@ static void game_loop() {
 					refresh = true;
 				}
 				else if (is_OnElem(Info, x, y)) {
-					refresh = Info.hook ? hide_info_window() : show_info_window();
+					if (Info.hook ^= 1) {
+						toggle_game_pause(true);
+						scroll_info(&HelpGuide, 0, false);
+						draw_Button(Info, true);
+						stop_GameTimer();
+					} else {
+						toggle_game_pause(false);
+						draw_Button(Info, false);
+						start_GameTimer();
+					}
+					refresh = true;
 				}
 				break;
 			case SDL_MOUSEWHEEL:
 				if (Vol_touch) {
-					x = ui_get_el_ivalue(&Elem[UI_Volume]) + (x ?: y);
+					x = ui_get_el_value(&Elem[UI_Volume], ATYPE_INT) + (x ?: y);
 					set_volume(x);
 					refresh = true;
-				} else if (Board_touch && Info.hook) {
-					refresh = show_info_window();
+				} else if (Board_touch && Info.hook && x) {
+					scroll_info(&HelpGuide, -FONT_LIMON_HEIGHT * x, true);
+					refresh = true;
 				}
 				break;
 			case SDL_WINDOWEVENT:
@@ -1087,7 +995,6 @@ bool load_game_ui(path_t game_dir)
 
 	/* draw background */
 	Elem[UI_Bg].img = ui_load_image(sys_get_fpath(game_dir, UI_ELEMENT_GET(0)));
-	_load_img(pb_logo, "pb_logo.png");
 
 	gfx_draw_bg(iBG, 0, 0, SCREEN_W, SCREEN_H);
 	draw_Msg("Loading...", 0);
@@ -1103,7 +1010,7 @@ bool load_game_ui(path_t game_dir)
 		printf("|~ load image %i: %s\n", i, f);
 # endif
 	}
-	el_rect rg0 = NEW_BOUNDS_RECT(240, 40, 40, 40);
+	el_rect rg0 = ui_new_el_rect(240, 40, 40, 40);
 	el_img bC = Elem[UI_BallsCollect].img;
 	Uint32 dP = bC->format->BitsPerPixel,
 	       mR = bC->format->Rmask,
@@ -1113,7 +1020,7 @@ bool load_game_ui(path_t game_dir)
 
 	for (i = 0; i < COLORS_NR; i++, b++)
 	{
-		el_rect rc1 = NEW_BOUNDS_RECT(i*40, 0, 40, 40);
+		el_rect rc1 = ui_new_el_rect(i*40, 0, 40, 40);
 		el_img  col = SDL_CreateRGBSurface(0, 40, 40, dP, mR, mG, mB, mA);
 
 		SDL_UpperBlit(bC, &rc1, col, NULL);
@@ -1123,7 +1030,7 @@ bool load_game_ui(path_t game_dir)
 	}
 	for (i = 0; i < BONUSES_NR; i++, b++)
 	{
-		el_rect rc1 = NEW_BOUNDS_RECT(i*40, 40, 40, 40);
+		el_rect rc1 = ui_new_el_rect(i*40, 40, 40, 40);
 		el_img  col = SDL_CreateRGBSurface(0, 40, 40, dP, mR, mG, mB, mA);
 
 		SDL_UpperBlit(bC, &rc1, col, NULL);
@@ -1141,7 +1048,6 @@ bool load_game_ui(path_t game_dir)
 }
 
 void free_game_ui(void) {
-	gfx_free_image(pb_logo);
 
 	/* free elems */
 	for (int i = 0; i < UI_ELEMENTS_N; i++) {
@@ -1167,23 +1073,26 @@ static void game_prep(void)
 {
 	srand(time(NULL));
 
-	int fnt_h = gfx_font_height(),
-	    fnt_w = gfx_chars_width(Restart.name);
+	Restart.on = ui_draw_ctxt(&Fonts[FNT_Fancy], "Restart");
+
+	int fnt_w = Restart.on->w, fnt_x = SCORES_X + (SCORES_W - fnt_w) / 2,
+	    fnt_h = Restart.on->h, fnt_y = SCREEN_H - fnt_h * 2 - fnt_h  / 2;
+
 	int mus_w = ui_get_el_width(&Elem[UI_Music]),
 	    mus_h = ui_get_el_height(&Elem[UI_Music]) / 2;
 	int vol_w = ui_get_el_width(&Elem[UI_Volume]),
 	    vol_h = ui_get_el_height(&Elem[UI_Volume]) / 2;
 
-	Restart.w = fnt_w, Restart.x = SCORES_X + (SCORES_W - fnt_w) / 2;
-	Restart.h = fnt_h, Restart.y = SCREEN_H - fnt_h * 2 - fnt_h  / 2;
-	gfx_draw_text(Restart.name, Restart.x, Restart.y, 0);
+	Restart.w = fnt_w, Restart.x = fnt_x,
+	Restart.h = fnt_h, Restart.y = fnt_y,
+	ui_draw_image(Restart.on, screen, fnt_x, fnt_y);
 
 	Timer.x = SCREEN_W - (Timer.w = gfx_chars_width(Timer.name) * Timer.temp);
 	Timer.y = SCREEN_H - (Timer.h = fnt_h * Timer.temp);
 	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
 
 	bool has_on = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY);
-	ui_set_el_bounds(&Elem[UI_Music], NEW_BOUNDS_RECT(0, SCREEN_H - mus_h, mus_w, mus_h));
+	ui_set_el_bounds(&Elem[UI_Music], ui_new_el_rect(0, SCREEN_H - mus_h, mus_w, mus_h));
 	ui_draw_Tico(&Elem[UI_Music], iBG, screen, has_on);
 
 	Loop.w = iget_W(Loop), Loop.x = mus_w + 5;
@@ -1195,18 +1104,27 @@ static void game_prep(void)
 	draw_Button(Info, Info.hook);
 
 	int fill_w = Prefs.bgm_vol * vol_w / 100;
-	ui_set_el_bounds(&Elem[UI_Volume], NEW_BOUNDS_RECT(mus_w, SCREEN_H - vol_h, vol_w, vol_h));
-	ui_set_el_ivalue(&Elem[UI_Volume], mus_w + fill_w);
+	ui_set_el_bounds(&Elem[UI_Volume], ui_new_el_rect(mus_w, SCREEN_H - vol_h, vol_w, vol_h));
+	ui_set_el_value(&Elem[UI_Volume], ATYPE_INT, mus_w + fill_w);
 	ui_draw_Hbar(&Elem[UI_Volume], iBG, screen, fill_w);
 
 	Track.x = mus_w + vol_w + Track.temp / 2;
 	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
 
 	if (Track.name[0] != '\0') {
-		Track.on = gfx_draw_ttf_text(Track.name);
+		Track.on = ui_make_text(&Fonts[FNT_Pixil], Track.name, sizeof(Track.name));
 		Track.w  = iget_W(Track);
 		Track.h  = iget_H(Track);
-		gfx_draw_wh(Track.on, Track.x, Track.y, Track.w, Track.h);
+		ui_scale_image(Track.on, screen, Track.x, Track.y, 0.5);
+	}
+	if(!HelpGuide.img) {
+		HelpGuide.img  = ui_make_text(&Fonts[FNT_Limon], help_text , sizeof(help_text)),
+		HelpGuide.rect = ui_new_el_rect(0, 0, INFO_W, GAME_BOARD_H);
+
+		ui_draw_image(balls[ball_joker-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_JOCKER);
+		ui_draw_image(balls[ball_flush-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_FLUSH );
+		ui_draw_image(balls[ball_brush-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BRUSH );
+		ui_draw_image(balls[ball_bomb1-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BOMB  );
 	}
 }
 
@@ -1271,6 +1189,11 @@ int main(int argc, char **argv) {
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
 		fprintf(stderr, "Couldn't initialize SDL: %s\n", SDL_GetError());
+		return -1;
+	}
+	// Load fonts
+	if (!game_load_fonts(Fonts, GameDir)) {
+		puts("Can't load game fonts\n");
 		return -1;
 	}
 	// Initialize Graphic and UI

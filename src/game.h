@@ -14,13 +14,15 @@ enum SND_T {
 	SND_Gameover
 };
 
-# ifdef USE_OPENAL
-#  include "sound_oal.h"
-# else
-#  include "sound_sdl.h"
-# endif
+# include "sound_sdl.h"
 
-enum {
+enum FNT_T {
+	FNT_Fancy,
+	FNT_Pixil,
+	FNT_Limon,
+};
+
+enum IMG_T {
 	UI_Bg = 0,
 	UI_Cell,
 	UI_BallsCollect,
@@ -29,7 +31,9 @@ enum {
 	UI_Blank,
 };
 
-# include "ui.h"
+# include "ui.c"
+# define INFL_SHOWED 0x2
+# define INFL_MOVE   0x1
 
 /* Player Preferences */
 # define FL_PREF_BGM_LOOP 0x01
@@ -71,4 +75,5 @@ extern void game_save_records(record_t list[], cstr_t path);
 
 /* Init game subsystem */
 extern SUCESS game_init_sound(sound_t *snd, prefs_t *pref, path_t game_dir);
+extern SUCESS game_load_fonts(zfont_t fnt_list[], path_t game_dir);
 #endif //_GAME_H_

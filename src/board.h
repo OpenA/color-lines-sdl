@@ -3,15 +3,7 @@
 # include <stdlib.h>
 # define _BOARD_H_
 
-# define BOARD_DESK_W  9
-# define BOARD_DESK_H  9
-# define BOARD_POOL_N  3
-# define BOARD_DESK_N (BOARD_DESK_W * BOARD_DESK_H)
-
-#define BALL_COLOR_N  7
-#define BALL_BONUS_N  4
-#define BALL_BONUS_D  5
-#define BALL_COLOR_D  5
+# include "cl_defines.h"
 
 # define MSK_mPID 0x007FF000u // ~ (2047 << 12) MAX
 # define MSK_mNUM 0x000007FFu // ~  2047 MAX

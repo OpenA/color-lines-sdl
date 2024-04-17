@@ -90,3 +90,42 @@ SUCESS game_init_sound(sound_t *snd, prefs_t *pref, path_t game_dir)
 	}
 	return SUCESS_ok;
 }
+
+SUCESS game_load_fonts(zfont_t fnt_list[], path_t game_dir)
+{
+	el_img bitmap[FONT_NAME_N];
+	sys_set_dpath(game_dir, FONT_DIR);
+
+# ifdef DEBUG
+	printf("- check fonts in: %s\n", game_dir.path);
+# endif
+	for (int i = 0; i < FONT_NAME_N; i++) {
+		cstr_t f = sys_get_fpath(game_dir, FONT_NAME_GET(i));
+# ifdef DEBUG
+		printf("|~ font loading %i: %s\n", i, f);
+# endif
+		if (!(bitmap[i] = ui_load_image(f)))
+			return SUCESS_fail;
+	}
+	ui_init_font(&fnt_list[FNT_Fancy], bitmap[FNT_Fancy],
+	ui_font_new_measures(
+		FONT_FANCY_WIDTH,
+		FONT_FANCY_HEIGHT,
+		FONT_FANCY_SPACE,
+		FONT_FANCY_PADDING));
+
+	ui_init_font(&fnt_list[FNT_Pixil], bitmap[FNT_Pixil],
+	ui_font_new_measures(
+		FONT_PIXIL_WIDTH,
+		FONT_PIXIL_HEIGHT,
+		FONT_PIXIL_SPACE,
+		FONT_PIXIL_PADDING));
+
+	ui_init_font(&fnt_list[FNT_Limon], bitmap[FNT_Limon],
+	ui_font_new_measures(
+		FONT_LIMON_WIDTH,
+		FONT_LIMON_HEIGHT,
+		FONT_LIMON_SPACE,
+		FONT_LIMON_PADDING));
+	return SUCESS_ok;
+}

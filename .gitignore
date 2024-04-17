@@ -4,4 +4,5 @@ build/
 Makefile
 color-lines
 color-lines.desktop
+autogen_conf.h
 *.o

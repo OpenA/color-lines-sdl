@@ -60,4 +60,29 @@ if [ $CFUND ]; then
   FIN='done'
 fi
 
+X20='s/\s/\\\x20/g'
+X22='s/"/\\\\"/g'
+
+COPYING=`cat COPYING | sed -e $X20 -e $X22 | while read l; do printf '%s\\\n' "$l"; done`
+ README=`cat in/HELP | sed -e $X20 -e $X22 | while read l; do printf '%s\\\n' "$l"; done`
+PLYLIST=`cat music/plylist.m3u | while read l
+do
+  case "$l" in
+    '#EXTINF:'*)
+      printf '\\\\\n{"%s",' "${l#*, }"
+      ;;
+    *.it|*.mod|*.s3m|*.xm|*.ogg|*.mp3)
+      printf '"%s"},' "$l"
+      ;;
+    *)
+      ;;
+  esac
+done`
+
+printf '%s\n%s\n%s\n'\
+  "# define CL_ABOUT \"$COPYING\""\
+  "# define CL_HELP  \"$README\""\
+  "# define MUSIC_PLAYLIST $PLYLIST"\
+> src/autogen_conf.h
+
 echo " ${UC}ate \033[1;39;49mMakefile\033[0m - $FIN."
