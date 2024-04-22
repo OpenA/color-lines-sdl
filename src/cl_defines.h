@@ -39,18 +39,32 @@
 # define BALL_BONUS_D  5
 # define BALL_COLOR_D  5
 
-// Game Defines
-# define GAME_SCREEN_W  800
-# define GAME_SCREEN_H  480
+# define BALLS_COUNT_L (BALL_COLOR_N+BALL_BONUS_N)
 
-# define GAME_BOARD_W  (BOARD_TILE_W * BOARD_DESK_W)
-# define GAME_BOARD_H  (BOARD_TILE_H * BOARD_DESK_H)
-# define GAME_BOARD_X  (GAME_SCREEN_W - GAME_BOARD_W - 15)
-# define GAME_BOARD_Y  15
+# define BALL_ALPHA_N 16
+# define BALL_ALPHA_S (0xFF / (BALL_ALPHA_N / 1))
+# define BALL_SIZES_N 16
+# define BALL_SIZES_S (1.0 / ((float)BALL_SIZES_N / 1.0))
+# define BALL_JUMPS_N 8
+# define BALL_JUMPS_S (1.0 / ((float)BALL_JUMPS_N / 1.0))
+
+// Game Defines
+# define GAME_SCREEN_W 800
+# define GAME_SCREEN_H 480
+# define GAME_SCREEN_P 15
+
+# define GAME_BOARD_W (BOARD_TILE_W * BOARD_DESK_W)
+# define GAME_BOARD_H (BOARD_TILE_H * BOARD_DESK_H)
+# define GAME_BOARD_X (GAME_SCREEN_W - GAME_BOARD_W - 15)
+# define GAME_BOARD_Y 15
+
+# define IS_OVER_GAME_BOARD(x,y) (\
+	x > GAME_BOARD_X && x < GAME_BOARD_X + GAME_BOARD_W &&\
+	y > GAME_BOARD_Y && y < GAME_BOARD_Y + GAME_BOARD_H)
 
 // Info Defines
-# define INFO_X (GAME_BOARD_X - BOARD_TILE_W - BOARD_POOL_N - 30)
-# define INFO_W (GAME_BOARD_W + BOARD_TILE_W + BOARD_POOL_N + 30)
+# define INFO_X (GAME_BOARD_X - BOARD_TILE_W - BOARD_POOL_N - 20)
+# define INFO_W (GAME_BOARD_W + BOARD_TILE_W + BOARD_POOL_N + 20)
 
 # define INFO_Y_JOCKER (18*FONT_FANCY_HEIGHT)
 # define INFO_Y_FLUSH  (21*FONT_FANCY_HEIGHT)

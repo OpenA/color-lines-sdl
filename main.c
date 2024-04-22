@@ -1,11 +1,9 @@
 #include "main.h"
 #include "src/game.c"
 
-#define GFX_UPDATE    0x321
 #define SCORES_W     (BOARD_X - TILE_W - SCORES_X - 40)
 #define SCORE_W      (BOARD_X - 23)
-#define BOARD_WIDTH  (BOARD_W * TILE_W)
-#define BOARD_HEIGHT (BOARD_H * TILE_H)
+#define UI_BITMAPS_L (1+SVG_IMAGES_N)
 
 char path_gfx[ SYS_PATH_L ];
 
@@ -23,13 +21,27 @@ static struct playlist {
 static sound_t Sound;
 static prefs_t Prefs = DEFAULT_PREFS();
 static zfont_t Fonts[FONT_NAME_N];
-static elem_t HelpGuide, MyScore;
+
+static elem_t SfxVol, SfxMute, MyScore, HelpGuide,
+              BgmVol, BgmMute, Restart;
 static desk_t Board;
 static move_t Move;
 static path_t GameDir;
-static elem_t Elem[UI_ELEMENTS_N];
+static el_img SVGs[UI_BITMAPS_L];
 
-static struct __STAT__ {
+struct __STAT__ {
+	bool quit, locked, paused, game_over;
+};
+
+enum {
+	hT_Free,
+	hT_Sfx_Volume,
+	hT_Bgm_Volume,
+	hT_Info_Help,
+	hT_Timer_Stop,
+};
+
+static struct {
 	bool running, game_over, update_needed, store_prefs, store_hiscore;
 } status = {
 	.store_hiscore = false,
@@ -47,7 +59,6 @@ typedef struct __ELS__ {
 	bool touch, hook;
 } elemen_t;
 
-static elemen_t Restart = { .name = "Restart" };
 static elemen_t Score   = { .x = SCORE_X + SCORE_W / 2, .y = SCORE_Y };
 static elemen_t Track   = { .temp = 14 };
 static elemen_t Timer   = { .name = "00:00", .temp = 0.5 };
@@ -56,12 +67,16 @@ static elemen_t Info    = { .name = "info" };
 
 int   moving_nr = 0;
 img_t bg_saved = NULL;
-img_t balls[BALLS_NR][ALPHA_STEPS];
-img_t resized_balls[BALLS_NR][SIZE_STEPS];
-img_t jumping_balls[BALLS_NR][JUMP_STEPS];
 
-#define iBG   Elem[UI_Bg  ].img
-#define iCELL Elem[UI_Cell].img
+static struct {
+	el_img alpha[BALL_ALPHA_N];
+	el_img sizes[BALL_SIZES_N];
+	el_img jumps[BALL_JUMPS_N];
+} Balls[BALLS_COUNT_L];
+
+#define iBG     SVGs[UI_Bg]
+#define iCELL   SVGs[UI_Cell]
+#define iSCREEN SVGs[UI_Blank]
 
 #define is_OnElem(el,x,y) !( \
 	x < el.x || y < el.y || x >= el.x + el.w || y >= el.y + el.h \
@@ -89,9 +104,6 @@ static void draw_Track_title(void)
 	gfx_update();
 }
 
-/* <==== Game Timer ====> */
-SDL_TimerID gameTimerId;
-
 Uint32 draw_Timer_digit(Uint32 ival, void *_)
 {
 	unsigned int t = board_get_time(&Board) + (ival > 0);
@@ -108,14 +120,6 @@ Uint32 draw_Timer_digit(Uint32 ival, void *_)
 	
 	return ival;
 }
-void start_GameTimer()
-{
-	gameTimerId = SDL_AddTimer(1e3, draw_Timer_digit, NULL);
-}
-void stop_GameTimer()
-{
-	SDL_RemoveTimer( gameTimerId );
-} /* <=== END ===> */
 
 const char help_text[] = CL_HELP,
           about_text[] = "   -= Color Lines "CL_VERSION_STRING" =-\n"CL_ABOUT"";
@@ -133,7 +137,7 @@ static void scroll_info(elem_t *el, int oy, bool save_y)
 		} else if (r.y < 0) {
 			r.y = 0;
 		}
-		ui_set_el_bounds(el, r);
+		el->rect.y = r.y;
 	}
 	ui_draw_source(el->img, r, screen, INFO_X, GAME_BOARD_Y);
 }
@@ -184,7 +188,6 @@ pool_t game_pool[POOL_SIZE];
 
 void draw_cell(int x, int y);
 void update_cell(int x, int y);
-void update_all(void);
 void draw_ball(int n, int x, int y);
 void draw_ball_offset(int n, int x, int y, int dx, int dy);
 void draw_ball_alpha(int n, int x, int y, int alpha);
@@ -194,7 +197,7 @@ void draw_ball_jump(int n, int x, int y, int num);
 static void show_score(void);
 static bool check_hiscores(int score);
 static void show_hiscores(void);
-static void game_restart(bool clean);
+static void prep_main_board(bool is_new);
 static int set_volume(int x);
 
 static void enable_effect(int x, int y, int effect)
@@ -469,32 +472,6 @@ void game_display_pool(void)
 	}
 }
 
-# define load_ball(path, ball, n) \
-	ball = gfx_load_image(path, SDL_TRUE);\
-	push_ball(n, ball);\
-	gfx_free_image(ball);
-
-void push_ball(ball_t b, img_t ball)
-{
-	int k, n = b - 1;
-
-	balls[n][ALPHA_STEPS - 1] = ball;
-
-	for (k = 1; k < ALPHA_STEPS; k++) {
-		int a = (255 * 100) / (ALPHA_STEPS * 100 / k);
-		balls[n][k - 1] = gfx_set_alpha(ball, a);
-	}
-	for (k = 1; k <= SIZE_STEPS; k++) {
-		float xs = (float)1.0 / ((float)SIZE_STEPS / (float)k);
-		resized_balls[n][k - 1] = gfx_scale(ball, xs, xs);
-	}
-	for (k = 1; k <= JUMP_STEPS; k++) {
-		float ys = 1.0 - (((float)(1.0 - JUMP_MAX) / (float)JUMP_STEPS) * k),
-		      xs = 1.0 + (1.0 - ys);
-		jumping_balls[n][k - 1] = gfx_scale(ball, xs, ys);
-	}
-}
-
 static void cell_to_screen(int x, int y, int *ox, int *oy)
 {
 	if (x == -1) {
@@ -537,7 +514,7 @@ static void toggle_music()
 		sound_bgm_stop(&Sound);
 	}
 	status.store_prefs = true;
-	ui_draw_Tico(&Elem[UI_Music], iBG, screen, has_play);
+	ui_draw_Tico(&BgmMute, iBG, screen, has_play);
 }
 
 static void toggle_loop() {
@@ -576,8 +553,8 @@ void track_switch(void)
 
 static int set_volume(int x)
 {
-	int vol_i, vol_w = ui_get_el_bounds(&Elem[UI_Volume]).w,
-	    pos_x, mus_w = ui_get_el_bounds(&Elem[UI_Music ]).w;
+	int vol_i, vol_w = BgmVol.rect.w,
+	    pos_x, mus_w = BgmMute.rect.w;
 
 	if (x <= mus_w)
 		pos_x = 0,
@@ -596,8 +573,8 @@ static int set_volume(int x)
 		sound_set_bgm_volume(&Sound, vol_i);
 		sound_set_sfx_volume(&Sound, vol_i);
 	}
-	ui_set_el_value(&Elem[UI_Volume], ATYPE_INT, mus_w + pos_x);
-	ui_draw_Hbar(&Elem[UI_Volume], iBG, screen, pos_x);
+	ui_set_el_value(&BgmVol, ATYPE_INT, mus_w + pos_x);
+	ui_draw_Hbar(&BgmVol, iBG, screen, pos_x);
 	Prefs.bgm_vol = vol_i;
 	Prefs.sfx_vol = vol_i;
 	status.store_prefs = true;
@@ -660,22 +637,12 @@ void mark_cells_dirty(int x1, int y1, int x2, int y2)
 	}
 }
 
-void update_all(void)
-{
-	if (status.update_needed) {
-		SDL_Event upd_event;
-		upd_event.type = GFX_UPDATE;
-		SDL_PushEvent(&upd_event);
-	}
-	status.update_needed = false;
-}
-
-
-void draw_ball_alpha_offset(int n, int alpha, int x, int y, int dx, int dy)
+void draw_ball_alpha_offset(int b, int i, int x, int y, int dx, int dy)
 {
 	int nx, ny;
+	el_img img = Balls[b].alpha[i];
 	cell_to_screen(x, y, &nx, &ny);
-	gfx_draw(balls[n][alpha], nx + 5 + dx, ny + 5 + dy);
+	gfx_draw(img, nx + 5 + dx, ny + 5 + dy);
 }
 
 void draw_ball_alpha(int n, int x, int y, int alpha)
@@ -693,26 +660,26 @@ void draw_ball(int n, int x, int y)
 	draw_ball_offset(n, x, y, 0, 0);
 }
 
-void draw_ball_size(int n, int x, int y, int size)
+void draw_ball_size(int b, int x, int y, int i)
 {
 	int nx, ny;
-	SDL_Surface *img = (SDL_Surface *)resized_balls[n][size];
+	el_img img = Balls[b].sizes[i];
 	int diff = (TILE_W - img->w) / 2;
 	cell_to_screen(x, y, &nx, &ny);
 	gfx_draw(img, nx + diff, ny + diff);
 }
 
-void draw_ball_jump(int n, int x, int y, int num)
+void draw_ball_jump(int b, int x, int y, int i)
 {
 	int nx, ny;
-	SDL_Surface *img = (SDL_Surface *)jumping_balls[n][num];
+	el_img img = Balls[b].jumps[i];
 	int diff  = (40 - img->h) + 5;
 	int diffx = (TILE_W - img->w) / 2;
 	cell_to_screen(x, y, &nx, &ny);
 	gfx_draw(img, nx + diffx, ny + diff);
 }
 
-static int fetch_game_board(bool rel)
+static int fetch_game_board()
 {
 	memset(game_board, 0, sizeof( game_board ));
 	memset(game_pool , 0, sizeof( game_pool  ));
@@ -747,154 +714,181 @@ static void draw_board(void)
 	}
 }
 
-Uint32 gameHandler(Uint32 interval, void *_)
+Uint32 frame_handler(Uint32 ival, void *frame)
 {
-	if (status.running) {
-		if (!Info.hook) {
-			game_move_ball();
-			game_process_board();
-			game_process_pool();
-			show_score();
-			game_display_pool();
-			if (!game_display_board()) { /* nothing todo */
-				if (!board_next_move(&Board, &Move) && !status.update_needed && !status.game_over) {
-					stop_GameTimer();
-					draw_Msg("Game Over!", 0);
-					status.game_over = true;
-					if (check_hiscores(board_get_score(&Board))) {
-						sound_sfx_play(&Sound, SND_Hiscore, 1);
-						show_hiscores();
-					} else {
-						sound_sfx_play(&Sound, SND_Gameover, 1);
-					}
-					status.update_needed = true;
-				}
-			}
-			update_all();
-		}
-	} else
+	struct __STAT__ *st = frame, ld = *st;
+	int code = 0;
+
+	if (ld.quit)
 		return 0;
-	return interval;
+	if (!ld.paused && !ld.locked) {
+		game_move_ball();
+		game_process_board();
+		game_process_pool();
+		show_score();
+		game_display_pool();
+		if (!game_display_board() && !ld.game_over) { /* nothing todo */
+			if (!board_next_move(&Board, &Move)) {
+				if (check_hiscores(board_get_score(&Board))) {
+					sound_sfx_play(&Sound, SND_Hiscore, 1);
+					show_hiscores();
+				} else {
+					sound_sfx_play(&Sound, SND_Gameover, 1);
+				}
+				draw_Msg("Game Over!", 0);
+				code = hT_Timer_Stop;
+				st->game_over = true;
+			}
+		}
+		if (code || status.update_needed)
+			ui_push_event(code), status.update_needed = false;
+	}
+	return ival;
 }
 
-static void game_loop() {
-	// Main loop
-	SDL_Event event;
-	int sx = 0, sy = 0;
-	bool Board_touch = false, refresh = false,
-	       Vol_touch = false, running = true,
-	       Vol_hook  = false, paused  = false;
+static void loop_main_start()
+{
+	struct __STAT__ frame = {
+		.quit      = false,
+		.game_over = false,
+		.locked    = false,
+		.paused    = false
+	};
 
-	SDL_AddTimer(20, &gameHandler, NULL);
-	
-	while (status.running) {
+	SDL_Event event;
+	SDL_TimerID timer_id = 0;
+	Uint32 t, c, hook_ht = 0;
+
+	int x, sx = 0, mx = 0,
+	    y, sy = 0, my = 0;
+
+	bool refresh = false, paused = false,
+	     running = true;
+
+/* <==== Game Timer ====> */
+# define start_Game_Timer() timer_id = SDL_AddTimer(1e3, draw_Timer_digit, NULL)
+# define  stop_Game_Timer() /*------*/ SDL_RemoveTimer( timer_id )
+# define  lock_Main_Frame() timer_id = 0, frame.locked = true
+# define ulock_Main_Frame() /*------*/    frame.locked = false
+
+	SDL_AddTimer(20, frame_handler, &frame);
+	start_Game_Timer();
+
+	while (running) {
 		if (SDL_WaitEvent(&event)) {
-			//fprintf(stderr,"event %d\n", event.type);
-			int x = event.button.x;
-			int y = event.button.y;
-			if (event.key.state == SDL_PRESSED) {
-				if (event.key.keysym.sym == SDLK_ESCAPE) {
-					status.running = false;
-				}
-			}
-			switch (event.type) {
-			case GFX_UPDATE: refresh = true;
+			x = event.button.x;
+			y = event.button.y;
+			c = event.user.code;
+			t = event.key.state == SDL_PRESSED &&
+				event.key.keysym.sym == SDLK_ESCAPE ? SDL_QUIT :
+				event.type;
+
+			refresh = true;
+
+			switch (t) {
+			case SDL_USEREVENT:
+				if (c == hT_Timer_Stop)
+					stop_Game_Timer();
 				break;
 			case SDL_QUIT: // Quit the game
-				status.running = false;
+				frame.quit = true;
+				refresh = running = false;
 				break;
 			case SDL_MOUSEMOTION:
-				Board_touch = !(x < BOARD_X || y < BOARD_Y || x >= BOARD_X + BOARD_WIDTH || y >= BOARD_Y + BOARD_HEIGHT);
-				  Vol_touch = ui_has_el_on_coords(&Elem[UI_Volume], x, y);
-				if (Vol_hook)
-					set_volume(x), refresh = true;
-				else if (ui_has_el_flag(&HelpGuide, INFL_MOVE)) {
-					scroll_info(&HelpGuide, sy - y, false), refresh = true;
-				}
+				mx = x, my = y;
+				if (hook_ht == hT_Bgm_Volume)
+					set_volume(x);
+				else if (hook_ht == hT_Info_Help)
+					scroll_info(&HelpGuide, sy - y, false);
+				else
+					refresh = false;
 				break;
 			case SDL_MOUSEBUTTONUP:
-				Track.hook = Vol_hook = false;
-				if (ui_has_el_flag(&HelpGuide, INFL_MOVE)) {
-					ui_del_el_flag(&HelpGuide, INFL_MOVE);
-					scroll_info(&HelpGuide, sy - y, true), refresh = true;
-				}
-				sx = 0, sy = 0;
+				if (hook_ht == hT_Info_Help)
+					scroll_info(&HelpGuide, sy - y, true);
+				else
+					refresh = false;
+				sx = sy = hook_ht = 0;
 				break;
 			case SDL_MOUSEBUTTONDOWN: // Button pressed
 				sx = x, sy = y;
-				if (Board_touch) {
-					if (Info.hook) {
-						ui_add_el_flag(&HelpGuide, INFL_MOVE);
+				if (IS_OVER_GAME_BOARD(x,y)) {
+					if (paused) {
+						hook_ht = hT_Info_Help;
 					} else if (!board_has_over(&Move)) {
 						board_select_ball(&Board, &Move,
 							(x - BOARD_X) / TILE_W,
 							(y - BOARD_Y) / TILE_H);
-					} else {
-						stop_GameTimer();
-						game_restart(false);
-					}
-				}
-				else if (Vol_touch) {
-					Vol_hook = refresh = true;
+					} else if (timer_id) {
+						lock_Main_Frame();
+						prep_main_board(true);
+						start_Game_Timer();
+						ulock_Main_Frame();
+					} else
+						refresh = false;
+				} else if (ui_is_on_el_rect(&BgmVol, x, y)) {
+					hook_ht = hT_Bgm_Volume;
 					set_volume(x);
-				}
-				else if (is_OnElem(Restart, x, y)) {
-					stop_GameTimer();
-					board_wait_finish(&Board, &Move);
-					if (!board_has_over(&Move)) {
-						bool ok = check_hiscores(board_get_score(&Board));
-						sound_sfx_play(&Sound, ok ? SND_Hiscore : SND_Gameover, 1);
-					}
-					game_restart(false);
-				}
-				else if (ui_has_el_on_coords(&Elem[UI_Music], x, y)) {
+				} else if (ui_is_on_el_rect(&Restart, x, y)) {
+					if (timer_id) {
+						stop_Game_Timer();
+						lock_Main_Frame();
+						board_wait_finish(&Board, &Move);
+						if (!board_has_over(&Move)) {
+							bool ok = check_hiscores(board_get_score(&Board));
+							sound_sfx_play(&Sound, ok ? SND_Hiscore : SND_Gameover, 1);
+						}
+						prep_main_board(true);
+						start_Game_Timer();
+						ulock_Main_Frame();
+					} else
+						refresh = false;
+				} else if (ui_is_on_el_rect(&BgmMute, x, y)) {
 					toggle_music();
-					refresh = true;
 				}
 				else if ((Track.hook = is_OnElem(Track, x, y))) {
 					track_switch();
 				}
 				else if (is_OnElem(Loop, x, y)) {
 					toggle_loop();
-					refresh = true;
 				}
 				else if (is_OnElem(Info, x, y)) {
-					if (Info.hook ^= 1) {
-						toggle_game_pause(true);
+					if (paused ^= 1) {
+						stop_Game_Timer();
+						toggle_game_pause(frame.paused = true);
 						scroll_info(&HelpGuide, 0, false);
 						draw_Button(Info, true);
-						stop_GameTimer();
 					} else {
-						toggle_game_pause(false);
+						toggle_game_pause(frame.paused = false);
 						draw_Button(Info, false);
-						start_GameTimer();
+						start_Game_Timer();
 					}
-					refresh = true;
-				}
+				} else
+					refresh = false;
 				break;
 			case SDL_MOUSEWHEEL:
-				if (Vol_touch) {
-					x = ui_get_el_value(&Elem[UI_Volume], ATYPE_INT) + (x ?: y);
-					set_volume(x);
-					refresh = true;
-				} else if (Board_touch && Info.hook && x) {
+				if (ui_is_on_el_rect(&BgmVol, mx,my)) {
+					set_volume(ui_get_el_value(&BgmVol, ATYPE_INT) + (x ?: y));
+				} else
+				if (IS_OVER_GAME_BOARD(mx,my) && paused && x) {
 					scroll_info(&HelpGuide, -FONT_LIMON_HEIGHT * x, true);
-					refresh = true;
-				}
+				} else
+					refresh = false;
 				break;
 			case SDL_WINDOWEVENT:
-				switch(event.window.event) {
-				case SDL_WINDOWEVENT_SIZE_CHANGED:
-				case SDL_WINDOWEVENT_MAXIMIZED:
-				case SDL_WINDOWEVENT_MINIMIZED:
-					status.update_needed = true;
-				}
+				c = event.window.event,
+				refresh = c == SDL_WINDOWEVENT_SIZE_CHANGED ||
+				          c == SDL_WINDOWEVENT_MINIMIZED ||
+				          c == SDL_WINDOWEVENT_MAXIMIZED;
+				break;
+			default: refresh = false;
 			}
+			printf ("%i refrsh; winev %i\n", refresh, t);
 			if (refresh)
-				gfx_update(), refresh = false;
+				gfx_update();
 		}
 	}
-	stop_GameTimer();
+	stop_Game_Timer();
 	board_wait_finish(&Board, &Move);
 }
 
@@ -980,133 +974,106 @@ static void show_hiscores(void)
 	}
 }
 
-bool load_game_ui(path_t game_dir)
+void prep_main_balls()
 {
-	char path[ SYS_PATH_L ], cname[14];
-	const size_t si = strlen( strcpy(path, path_gfx) );
+	int j,x,y,a,b = 0,n = BALL_COLOR_N;
 
-	int i, b = ball1;
+	float xs,ys;
+	GFX_Radi angle = { 0.0f, 1.0f }; // GFX_toRadians(0);
 
-	sys_set_dpath(game_dir, UI_DIR);
+	el_rect dbr = ui_new_el_rect(
+		BOARD_BALL_H*(BALL_COLOR_N -1 ),
+		BOARD_BALL_H, BOARD_BALL_W, BOARD_BALL_H);
 
-# define _load_img(el, LIT) \
-	_strrepl(path, si, LIT);\
-	el = gfx_load_image(path, SDL_TRUE)
-
-	/* draw background */
-	Elem[UI_Bg].img = ui_load_image(sys_get_fpath(game_dir, UI_ELEMENT_GET(0)));
-
-	gfx_draw_bg(iBG, 0, 0, SCREEN_W, SCREEN_H);
-	draw_Msg("Loading...", 0);
-	gfx_update();
-
-# ifdef DEBUG
-	printf("- check image in: %s\n", game_dir.path);
-# endif
-	for (i = 1; i < UI_ELEMENTS_N; i++) {
-		cstr_t f = sys_get_fpath(game_dir, UI_ELEMENT_GET(i));
-		Elem[i].img = ui_load_image(f);
-# ifdef DEBUG
-		printf("|~ load image %i: %s\n", i, f);
-# endif
-	}
-	el_rect rg0 = ui_new_el_rect(240, 40, 40, 40);
-	el_img bC = Elem[UI_BallsCollect].img;
-	Uint32 dP = bC->format->BitsPerPixel,
-	       mR = bC->format->Rmask,
-	       mG = bC->format->Gmask,
-	       mB = bC->format->Bmask,
-	       mA = bC->format->Amask;
-
-	for (i = 0; i < COLORS_NR; i++, b++)
+	for (y = 0; y < BOARD_BALL_H*2; y += BOARD_BALL_H, n = BALL_BONUS_N)
+	for (x = 0; x < BOARD_BALL_W*n; x += BOARD_BALL_W, b++)
 	{
-		el_rect rc1 = ui_new_el_rect(i*40, 0, 40, 40);
-		el_img  col = SDL_CreateRGBSurface(0, 40, 40, dP, mR, mG, mB, mA);
+		el_rect sbr = ui_new_el_rect(x, y, BOARD_BALL_W, BOARD_BALL_H);
+		el_img ball = GFX_CpySurfFormat(SVGs[UI_BallsCollect], BOARD_BALL_W, BOARD_BALL_H);
 
-		SDL_UpperBlit(bC, &rc1, col, NULL);
-		SDL_UpperBlit(bC, &rg0, col, NULL);
+		SDL_UpperBlit(SVGs[UI_BallsCollect], &sbr, ball, NULL);
+		if ((b+1) < ball_bomb1)
+			SDL_UpperBlit(SVGs[UI_BallsCollect], &dbr, ball, NULL);
 
-		push_ball(b, col);
+		Balls[b].alpha[BALL_ALPHA_N - 1] = ball;
+
+		for (j = 1, a = BALL_ALPHA_S; j < BALL_ALPHA_N; j++, a += BALL_ALPHA_S) {
+			Balls[b].alpha[j-1] = GFX_CpyWithAlpha(ball, a);
+		}
+		for (j = 0, xs = BALL_SIZES_S; j < BALL_SIZES_N; j++, xs += BALL_SIZES_S) {
+			Balls[b].sizes[j] = GFX_CpyWithTransform(ball, angle, xs, xs);
+		}
+		for (j = 1; j <= BALL_JUMPS_N; j++) {
+			ys = 1.0 - (((float)(1.0 - JUMP_MAX) / (float)JUMP_STEPS) * j),
+			xs = 1.0 + (1.0 - ys);
+			Balls[b].jumps[j-1] = GFX_CpyWithTransform(ball, angle, xs, ys);
+		}
 	}
-	for (i = 0; i < BONUSES_NR; i++, b++)
-	{
-		el_rect rc1 = ui_new_el_rect(i*40, 40, 40, 40);
-		el_img  col = SDL_CreateRGBSurface(0, 40, 40, dP, mR, mG, mB, mA);
-
-		SDL_UpperBlit(bC, &rc1, col, NULL);
-		if (b < ball_bomb1)
-			SDL_UpperBlit(bC, &rg0, col, NULL);
-
-		push_ball(b, col);
-	}
-	_load_img( Loop.on ,  "loop_on.png"  );
-	_load_img( Loop.off,  "loop_off.png" );
-	_load_img( Info.on ,  "info_on.png"  );
-	_load_img( Info.off,  "info_off.png" );
-
-	return false;
 }
 
-void free_game_ui(void) {
-
-	/* free elems */
-	for (int i = 0; i < UI_ELEMENTS_N; i++) {
-		gfx_free_image(Elem[i].img);
-	}
+static void free_main_ui()
+{
+	int i,k;
+	/* free images */
+	for (i = 0; i <  UI_BITMAPS_L; i++) ui_free_image(SVGs[i]);
+	/* free fonts */
+	for (i = 0; i <   FONT_NAME_N; i++) ui_free_image(Fonts[i].bitmap);
 	/* free balls */
-	for (int i = 0; i < BALLS_NR; i++) {
-		for (int k = 0; k < ALPHA_STEPS; k++) {
-			gfx_free_image(balls[i][k]);
-		}
-		for (int k = 0; k < SIZE_STEPS; k++) {
-			gfx_free_image(resized_balls[i][k]);
-		}
-		for (int k = 0; k < JUMP_STEPS; k++) {
-			gfx_free_image(jumping_balls[i][k]);
-		}
+	for (i = 0; i < BALLS_COUNT_L; i++) {
+		for(k=0; k < BALL_ALPHA_N; k++) ui_free_image(Balls[i].alpha[k]);
+		for(k=0; k < BALL_SIZES_N; k++) ui_free_image(Balls[i].sizes[k]);
+		for(k=0; k < BALL_JUMPS_N; k++) ui_free_image(Balls[i].jumps[k]);
 	};
-	free_Img( Info  );
-	free_Img( Loop  );
+	ui_free_image( HelpGuide.img ); BgmVol.img = BgmMute.img = NULL;
+	ui_free_image( Restart  .img );
 }
 
-static void game_prep(void)
+static void prep_main_ui(void)
 {
 	srand(time(NULL));
 
-	Restart.on = ui_draw_ctxt(&Fonts[FNT_Fancy], "Restart");
+	Restart.img = ui_draw_ctxt(&Fonts[FNT_Fancy], "Restart");
+	BgmVol .img = SVGs[UI_Volume];
+	BgmMute.img = SVGs[UI_Music];
 
-	int fnt_w = Restart.on->w, fnt_x = SCORES_X + (SCORES_W - fnt_w) / 2,
-	    fnt_h = Restart.on->h, fnt_y = SCREEN_H - fnt_h * 2 - fnt_h  / 2;
+	int mus_w = ui_get_img_width (SVGs[UI_Music]),
+	    mus_h = ui_get_img_height(SVGs[UI_Music]) / 2,
+	    vol_w = ui_get_img_width (SVGs[UI_Volume]),
+	    vol_h = ui_get_img_height(SVGs[UI_Volume]) / 2,
+	    res_w = ui_get_img_width (Restart.img),
+	    res_h = ui_get_img_height(Restart.img);
 
-	int mus_w = ui_get_el_width(&Elem[UI_Music]),
-	    mus_h = ui_get_el_height(&Elem[UI_Music]) / 2;
-	int vol_w = ui_get_el_width(&Elem[UI_Volume]),
-	    vol_h = ui_get_el_height(&Elem[UI_Volume]) / 2;
+ 	int res_x = SCORES_X + (SCORES_W - res_w) / 2,
+ 	    res_y = SCREEN_H - res_h * 2 - res_h  / 2;
 
-	Restart.w = fnt_w, Restart.x = fnt_x,
-	Restart.h = fnt_h, Restart.y = fnt_y,
-	ui_draw_image(Restart.on, screen, fnt_x, fnt_y);
+	ui_set_el_bounds(&Restart, res_x, res_y, res_w, res_h);
+	ui_draw_image(Restart.img, screen, res_x, res_y);
 
 	Timer.x = SCREEN_W - (Timer.w = gfx_chars_width(Timer.name) * Timer.temp);
-	Timer.y = SCREEN_H - (Timer.h = fnt_h * Timer.temp);
+	Timer.y = SCREEN_H - (Timer.h = res_h * Timer.temp);
 	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
 
 	bool has_on = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY);
-	ui_set_el_bounds(&Elem[UI_Music], ui_new_el_rect(0, SCREEN_H - mus_h, mus_w, mus_h));
-	ui_draw_Tico(&Elem[UI_Music], iBG, screen, has_on);
+	ui_set_el_bounds(&BgmMute, 0, SCREEN_H - mus_h, mus_w, mus_h);
+	ui_draw_Tico(&BgmMute, iBG, screen, has_on);
+
+	Loop.on = ui_draw_ctxt(&Fonts[FNT_Pixil], "LT");
+	Loop.off = ui_draw_ctxt(&Fonts[FNT_Pixil], "PL");
+	Info.on = ui_draw_ctxt(&Fonts[FNT_Fancy], "{x}");
+	Info.off = ui_draw_ctxt(&Fonts[FNT_Fancy], "{?}");
 
 	Loop.w = iget_W(Loop), Loop.x = mus_w + 5;
 	Loop.h = iget_H(Loop), Loop.y = SCREEN_H - mus_h - Loop.h;
 	draw_Button(Loop, game_prefs_has(&Prefs, FL_PREF_BGM_LOOP));
 
-	Info.w = iget_W(Info), Info.x = 0;
-	Info.h = iget_H(Info), Info.y = SCREEN_H - mus_h - Info.h;
+	Info.w = iget_W(Info), Info.x = 5;
+	Info.h = iget_H(Info), Info.y = 5;
 	draw_Button(Info, Info.hook);
 
 	int fill_w = Prefs.bgm_vol * vol_w / 100;
-	ui_set_el_bounds(&Elem[UI_Volume], ui_new_el_rect(mus_w, SCREEN_H - vol_h, vol_w, vol_h));
-	ui_set_el_value(&Elem[UI_Volume], ATYPE_INT, mus_w + fill_w);
-	ui_draw_Hbar(&Elem[UI_Volume], iBG, screen, fill_w);
+	ui_set_el_bounds(&BgmVol, mus_w, SCREEN_H - vol_h, vol_w, vol_h);
+	ui_set_el_value (&BgmVol, ATYPE_INT, mus_w + fill_w);
+	ui_draw_Hbar(&BgmVol, iBG, screen, fill_w);
 
 	Track.x = mus_w + vol_w + Track.temp / 2;
 	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
@@ -1121,17 +1088,16 @@ static void game_prep(void)
 		HelpGuide.img  = ui_make_text(&Fonts[FNT_Limon], help_text , sizeof(help_text)),
 		HelpGuide.rect = ui_new_el_rect(0, 0, INFO_W, GAME_BOARD_H);
 
-		ui_draw_image(balls[ball_joker-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_JOCKER);
-		ui_draw_image(balls[ball_flush-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_FLUSH );
-		ui_draw_image(balls[ball_brush-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BRUSH );
-		ui_draw_image(balls[ball_bomb1-1][ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BOMB  );
+		ui_draw_image(Balls[ball_joker-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_JOCKER);
+		ui_draw_image(Balls[ball_flush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_FLUSH );
+		ui_draw_image(Balls[ball_brush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BRUSH );
+		ui_draw_image(Balls[ball_bomb1-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BOMB  );
 	}
 }
 
-static void game_restart(bool rel)
+static void prep_main_board(bool is_new)
 {
-	status.update_needed = status.game_over = false;
-	if (!rel) {
+	if (is_new) {
 		board_init_desk(&Board);
 		board_fill_pool(&Board);
 # ifdef DEBUG
@@ -1142,15 +1108,14 @@ static void game_restart(bool rel)
 		board_fill_pool(&Board);
 # endif
 	}
-	board_init_move(&Move , fetch_game_board(rel));
+	board_init_move(&Move , fetch_game_board());
 	draw_board();
-	cur_score = rel ? board_get_score(&Board) - 1 : -1;
-	cur_mul   = rel ? board_get_delta(&Board) - 1 :  0;
+	cur_score = is_new ? -1 : board_get_score(&Board) - 1;
+	cur_mul   = is_new ?  0 : board_get_delta(&Board) - 1;
 	draw_Timer_digit(0, NULL);
 	show_score();
 	show_hiscores();
-	gfx_update();
-	start_GameTimer();
+	status.update_needed = status.game_over = false;
 }
 
 int main(int argc, char **argv) {
@@ -1197,18 +1162,26 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 	// Initialize Graphic and UI
-	if (gfx_init(path_gfx, SCREEN_W, SCREEN_H) || load_game_ui(GameDir)) {
-		free_game_ui();
+	if (gfx_init(path_gfx, SCREEN_W, SCREEN_H)) {
 		fprintf(stderr, "graphics.c: Unable to create %dx%d window - '%s'\n", SCREEN_W, SCREEN_H, SDL_GetError());
 		return -1;
 	}
+	if (!game_load_images(SVGs, GameDir)) {
+		puts("Can't load game images\n");
+		return -1;
+	}
+	ui_draw_image(iBG, screen, 0, 0);
+	draw_Msg("Loading...",0);
+	gfx_update();
+
 	if (game_init_sound(&Sound, &Prefs, GameDir))
 		music_start(Prefs.track_num, GameDir);
-	game_prep();
-	game_restart(rel);
-	game_loop();
+
+	prep_main_balls();
+	prep_main_ui();
+	prep_main_board(!rel);
+	loop_main_start();
 	/* END GAME CODE HERE */
-	board_wait_finish(&Board, &Move);
 # ifndef DEBUG
 	// save game progress
 	    game_save_session(&Board , sys_get_fpath(cfg_dir, CL_SESSION_NAME));
@@ -1217,7 +1190,7 @@ int main(int argc, char **argv) {
 	if (status.store_prefs)
 	    game_save_settings(&Prefs, sys_get_fpath(cfg_dir, CL_PREFS_NAME));
 # endif
-	free_game_ui();
+	free_main_ui();
 	sound_close_done(&Sound);
 	gfx_done();
 	SDL_Quit();

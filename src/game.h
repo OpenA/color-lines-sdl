@@ -76,4 +76,5 @@ extern void game_save_records(record_t list[], cstr_t path);
 /* Init game subsystem */
 extern SUCESS game_init_sound(sound_t *snd, prefs_t *pref, path_t game_dir);
 extern SUCESS game_load_fonts(zfont_t fnt_list[], path_t game_dir);
+extern SUCESS game_load_images(el_img img_list[], path_t game_dir);
 #endif //_GAME_H_

@@ -1,6 +1,7 @@
 #ifndef _UI_H_
 # include "cstr.h"
 # include "cl_defines.h"
+# include "gfx_sdl.h"
 # include "../graphics.c"
 # define _UI_H_
 
@@ -27,31 +28,31 @@ typedef struct {
 	unsigned short px,py;
 } elem_t;
 
-#define ui_has_el_on_coords(el, px, py) !(\
+#define ui_is_on_el_rect(el, px, py) !(\
 	px < (el)->rect.x || px >= (el)->rect.x + (el)->rect.w ||\
 	py < (el)->rect.y || py >= (el)->rect.y + (el)->rect.h )
 
 # define ui_new_el_rect(_x,_y,_w,_h) (struct el_rect){ .x = _x, .y = _y, .w = _w, .h = _h }
 
 # define ui_set_el_value(el,A,_v)((el)->value.A = _v)
-# define ui_set_el_bounds(el,_r) ((el)->rect    = _r)
+# define ui_set_el_bounds(el,_x,_y,_w,_h)\
+	(el)->rect.x =_x, (el)->rect.y =_y,\
+	(el)->rect.w =_w, (el)->rect.h =_h
 
 # define ui_get_el_bounds(el)    ((el)->rect)
 # define ui_get_el_value(el,A)   ((el)->value.A)
-# define ui_get_el_width(el)     ((el)->img->w)
-# define ui_get_el_height(el)    ((el)->img->h)
+
+# define ui_get_img_width(img)   ((img)->w)
+# define ui_get_img_height(img)  ((img)->h)
 
 # define ui_has_el_flag(el,FL)   ((el)->flags & FL)
 # define ui_add_el_flag(el,FL)   ((el)->flags |= FL)
 # define ui_del_el_flag(el,FL)   ((el)->flags &= ~FL)
 
-static inline el_img ui_load_image(cstr_t file)
-{	
+static inline el_img ui_load_image(cstr_t file, SDL_bool transparent)
+{
 	el_img img = IMG_Load(file);
-
-	if (img) {
-		SDL_SetColorKey(img, SDL_HasColorKey(img), img->format->format);
-	}
+	if   ( img ) SDL_SetColorKey(img, transparent, img->format->format);
 	return img;
 }
 /* draw horisontal bar */
@@ -131,6 +132,13 @@ static inline void ui_scale_source(el_img img, el_rect ir, el_img out, int ox, i
 {
 	el_rect or = ui_new_el_rect( ox, oy, ir.w*s, ir.h*s );
 	SDL_UpperBlitScaled(img, &ir, out, &or);
+}
+
+static inline void ui_push_event(int code) {
+	SDL_Event usr_ev;
+	usr_ev.type = SDL_USEREVENT;
+	usr_ev.user.code = code;
+	SDL_PushEvent(&usr_ev);
 }
 
 #endif

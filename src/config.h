@@ -31,9 +31,9 @@
 	"fnt_pixil.svg",\
 	"fnt_limon.svg" }[i]
 
-# define UI_DIR "vector"
-# define UI_ELEMENTS_N 5
-# define UI_ELEMENT_GET(i) (const char[][13]){\
+# define SVG_DIR "vector"
+# define SVG_IMAGES_N 5
+# define SVG_IMAGE_GET(i) (const char[][16]){\
 	"bg0.svg",\
 	"cell.svg",\
 	"cl_balls.svg",\

@@ -104,7 +104,7 @@ SUCESS game_load_fonts(zfont_t fnt_list[], path_t game_dir)
 # ifdef DEBUG
 		printf("|~ font loading %i: %s\n", i, f);
 # endif
-		if (!(bitmap[i] = ui_load_image(f)))
+		if (!(bitmap[i] = ui_load_image(f, SDL_TRUE)))
 			return SUCESS_fail;
 	}
 	ui_init_font(&fnt_list[FNT_Fancy], bitmap[FNT_Fancy],
@@ -127,5 +127,25 @@ SUCESS game_load_fonts(zfont_t fnt_list[], path_t game_dir)
 		FONT_LIMON_HEIGHT,
 		FONT_LIMON_SPACE,
 		FONT_LIMON_PADDING));
+	return SUCESS_ok;
+}
+
+SUCESS game_load_images(el_img img_list[], path_t game_dir)
+{
+	sys_set_dpath(game_dir, SVG_DIR);
+
+# ifdef DEBUG
+	printf("- check images in: %s\n", game_dir.path);
+# endif
+	for (int i = 0; i < SVG_IMAGES_N; i++) {
+		cstr_t f = sys_get_fpath(game_dir, SVG_IMAGE_GET(i));
+# ifdef DEBUG
+		printf("|~ load image %i: %s\n", i, f);
+# endif
+		if (!(img_list[i] = ui_load_image(f, (i != UI_Bg))))
+			return SUCESS_fail;
+	}
+	img_list[UI_Blank] = GFX_CpySurfFormat(img_list[UI_Bg], GAME_SCREEN_W, GAME_SCREEN_H);
+	                     GFX_DisableAlpha(img_list[UI_Blank]);
 	return SUCESS_ok;
 }
