@@ -24,7 +24,7 @@ typecr_t ui_text_rect(zfont_t *fnt, cstr_t txt, const int len)
 	return ui_font_new_typecaret(w,h);
 }
 
-inline typecr_t ui_draw_char(zfont_t *fnt, el_img out, const char c, typecr_t p)
+inline typecr_t ui_draw_char(zfont_t *fnt, const char c, const char f, el_img out, typecr_t p)
 {
 	measure_t g = ui_font_get_measures(fnt);
 
@@ -43,11 +43,10 @@ inline typecr_t ui_draw_char(zfont_t *fnt, el_img out, const char c, typecr_t p)
 		    s = ui_font_get_letter_offset(fnt, i),
 		    w = ui_font_get_letter_width(fnt, i);
 
-		el_rect src = ui_new_el_rect(s+x, y, w, FONT_G_HEIGHT),
-		        dst = ui_new_el_rect(p.offsetX, p.offsetY, w, FONT_G_HEIGHT);
-		 p.offsetX += FONT_G_PADDING + w;
-
-		SDL_UpperBlit(fnt->bitmap, &src, out, &dst);
+		el_rect ir = ui_new_el_rect(s + x, y, w, FONT_G_HEIGHT);
+		if (c != f)
+			ui_draw_source(fnt->bitmap, ir, out, p.offsetX, p.offsetY);
+		p.offsetX += FONT_G_PADDING + w;
 	}
 	return p;
 }
@@ -55,7 +54,7 @@ inline typecr_t ui_draw_char(zfont_t *fnt, el_img out, const char c, typecr_t p)
 inline void ui_draw_text(zfont_t *fnt, cstr_t txt, const int len, el_img out, typecr_t p)
 {
 	for (int i = 0; i < len && txt[i] != '\0'; i++)
-		p = ui_draw_char(fnt, out, txt[i], p);
+		p = ui_draw_char(fnt, txt[i], ' ', out, p);
 }
 
 el_img ui_make_text(zfont_t *fnt, cstr_t txt, const int len)
@@ -107,6 +106,29 @@ void ui_init_font(zfont_t *fnt, el_img bitmap, measure_t g)
 		}
 	}
 # undef has_pixel_alpha
+}
+
+int ui_win_create(window_t *win, int scr_w, int scr_h)
+{
+	int ec = !SDL_Init(
+		SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_EVENTS
+	);
+	if (ec && (ec = !SDL_CreateWindowAndRenderer(scr_w, scr_h,
+#ifdef CL_MOBILE
+		SDL_WINDOW_FULLSCREEN_DESKTOP
+#else
+		SDL_WINDOW_RESIZABLE
+#endif
+	, &win->sdlWin, &win->render))
+	) {
+		SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY , "linear" );
+		SDL_RenderSetLogicalSize( win->render, scr_w, scr_h );
+		win->stream = SDL_CreateTexture( win->render,
+			SDL_PIXELFORMAT_RGBA32,
+			SDL_TEXTUREACCESS_STREAMING,
+		scr_w, scr_h );
+	}
+	return ec;
 }
 
 # undef FONT_G_WIDTH

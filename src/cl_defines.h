@@ -62,6 +62,10 @@
 	x > GAME_BOARD_X && x < GAME_BOARD_X + GAME_BOARD_W &&\
 	y > GAME_BOARD_Y && y < GAME_BOARD_Y + GAME_BOARD_H)
 
+#define SCORE_TAB_X 40
+#define SCORE_TAB_Y 75
+#define SCORE_TAB_W (GAME_BOARD_X - TILE_W - SCORE_TAB_X * 2)
+
 // Info Defines
 # define INFO_X (GAME_BOARD_X - BOARD_TILE_W - BOARD_POOL_N - 20)
 # define INFO_W (GAME_BOARD_W + BOARD_TILE_W + BOARD_POOL_N + 20)

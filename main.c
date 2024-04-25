@@ -18,19 +18,21 @@ static struct playlist {
 	const char *title, *file;
 } trackList[] = { MUSIC_PLAYLIST };
 
+static window_t Window;
 static sound_t Sound;
 static prefs_t Prefs = DEFAULT_PREFS();
 static zfont_t Fonts[FONT_NAME_N];
 
-static elem_t SfxVol, SfxMute, MyScore, HelpGuide,
-              BgmVol, BgmMute, Restart;
+static elem_t SfxVol, SfxMute, PlayType, HelpGuide,
+              BgmVol, BgmMute, PlayList, HelpBtn, Restart;
 static desk_t Board;
 static move_t Move;
 static path_t GameDir;
 static el_img SVGs[UI_BITMAPS_L];
 
 struct __STAT__ {
-	bool quit, locked, paused, game_over;
+	bool quit:1, locked:1, paused:1, game_over:1;
+	char brd_state;
 };
 
 enum {
@@ -54,19 +56,16 @@ static struct {
 typedef struct __ELS__ {
 	char name[ 128 ];
 	int x, y, w, h;
-	img_t on, off;
+	el_img on,*off;
 	float temp;
 	bool touch, hook;
 } elemen_t;
 
-static elemen_t Score   = { .x = SCORE_X + SCORE_W / 2, .y = SCORE_Y };
 static elemen_t Track   = { .temp = 14 };
-static elemen_t Timer   = { .name = "00:00", .temp = 0.5 };
-static elemen_t Loop    = { .name = "loop" };
-static elemen_t Info    = { .name = "info" };
+static typecr_t timer_pos;
 
 int   moving_nr = 0;
-img_t bg_saved = NULL;
+el_img bg_saved = NULL;
 
 static struct {
 	el_img alpha[BALL_ALPHA_N];
@@ -77,6 +76,9 @@ static struct {
 #define iBG     SVGs[UI_Bg]
 #define iCELL   SVGs[UI_Cell]
 #define iSCREEN SVGs[UI_Blank]
+#define tFANCY &Fonts[FNT_Fancy]
+#define tPIXIL &Fonts[FNT_Pixil]
+#define tLIMON &Fonts[FNT_Limon]
 
 #define is_OnElem(el,x,y) !( \
 	x < el.x || y < el.y || x >= el.x + el.w || y >= el.y + el.h \
@@ -84,40 +86,44 @@ static struct {
 
 #define iget_W(el) el.on->w
 #define iget_H(el) el.on->h
-#define free_Img(el) \
-	gfx_free_image(el.on), gfx_free_image(el.off)
-
-#define draw_Button(el, pss)\
-	gfx_draw_bg(iBG, el.x, el.y, el.w, el.h);\
-	gfx_draw((pss ? el.on : el.off), el.x, el.y)
 
 #define draw_Msg(str, s) \
 	game_board_msg(str, sizeof(str) - 1, s)
 
 static void draw_Track_title(void)
 {
-	gfx_draw_bg(iBG, Track.x, Track.y, Track.w, Track.h);
+	el_rect ir = ui_new_el_rect(Track.x, Track.y, Track.w, Track.h);
 	Track.on = ui_make_text(&Fonts[FNT_Pixil], Track.name, sizeof(Track.name));
-	Track.w  = gfx_img_w(Track.on);
-	Track.h  = gfx_img_h(Track.on);
-	ui_scale_image(Track.on, screen, Track.x, Track.y, 0.5);
-	gfx_update();
+	Track.w  = ir.w = ui_get_img_width(Track.on);
+	Track.h  = ir.h = ui_get_img_height(Track.on);
+	ui_draw_source(iBG, ir, iSCREEN, ir.x, ir.y);
+	ui_scale_image(Track.on, iSCREEN, ir.x, ir.y, 0.5);
 }
 
-Uint32 draw_Timer_digit(Uint32 ival, void *_)
+Uint32 upd_main_time(Uint32 ival, void *_)
 {
 	unsigned int t = board_get_time(&Board) + (ival > 0);
-	                 board_set_time(&Board, t);
-	
-	sprintf(Timer.name, "%02d:%02d", (int)(t / 60), t % 60);
-	gfx_draw_bg(iBG, Timer.x, Timer.y, Timer.w, Timer.h);
-	
-	Timer.w = gfx_chars_width(Timer.name) * Timer.temp;
-	Timer.x = SCREEN_W - Timer.w;
-	
-	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
+	char tdigit[16]; board_set_time(&Board, t);
+
+	char s = (t % 60),
+		 m = (t / 60), f = ' ';
+	if (t >= (60 * 60))
+		 s = m % 60, m = t / (60 * 60), f = t % 2 ? ' ' : ':';
+
+	sprintf(tdigit, "%02d : %02d", m, s);
+
+	typecr_t p = ui_font_new_typecaret(
+		SCORE_TAB_X + (SCORE_TAB_W / 2) - timer_pos.width / 2,
+		SCORE_TAB_Y + FONT_FANCY_HEIGHT + GAME_SCREEN_P
+	);
+	el_rect or = ui_new_el_rect( p.offsetX, p.offsetY, SCORE_TAB_W - p.offsetX, timer_pos.height );
+
+	ui_draw_source(iBG, or, iSCREEN, p.offsetX, p.offsetY);
+
+	for (int i = 0; i < 7; i++)
+		p = ui_draw_char(tPIXIL, tdigit[i], f, iSCREEN, p);
+
 	status.update_needed = true;
-	
 	return ival;
 }
 
@@ -126,20 +132,22 @@ const char help_text[] = CL_HELP,
 
 static void scroll_info(elem_t *el, int oy, bool save_y)
 {
-	gfx_draw_bg(iBG, INFO_X, GAME_BOARD_Y, INFO_W, GAME_BOARD_H);
+	el_img img = ui_get_el_bitmap(el);
+	el_rect ir = ui_get_el_bounds(el),
+	        or = ui_new_el_rect( INFO_X, GAME_BOARD_Y, INFO_W, GAME_BOARD_H );
 
-	el_rect r = ui_get_el_bounds(el);
-	     r.y += oy;
+	ir.y += oy;
 
 	if (save_y) {
-		if (r.y > GAME_BOARD_H) {
-			r.y = GAME_BOARD_H;
-		} else if (r.y < 0) {
-			r.y = 0;
+		if (ir.y > GAME_BOARD_H) {
+			ir.y = GAME_BOARD_H;
+		} else if (ir.y < 0) {
+			ir.y = 0;
 		}
-		el->rect.y = r.y;
+		el->rect.y = ir.y;
 	}
-	ui_draw_source(el->img, r, screen, INFO_X, GAME_BOARD_Y);
+	ui_draw_source(iBG, or, iSCREEN, or.x, or.y);
+	ui_draw_source(img, ir, iSCREEN, or.x, or.y);
 }
 
 static void toggle_game_pause(bool pause)
@@ -149,22 +157,24 @@ static void toggle_game_pause(bool pause)
 		INFO_W, GAME_BOARD_H );
 	if (pause) {
 		if(!bg_saved)
-			bg_saved = SDL_CreateRGBSurface(0, ir.w, ir.h, 16, 0xF800, 0x7E0, 0x1F, 0);
-		ui_draw_source(screen, ir, bg_saved, 0, 0);
+			bg_saved = GFX_CpySurfFormat(iBG, ir.w, ir.h);
+		HelpBtn.fill.offsetY = FONT_LIMON_HEIGHT;
+		ui_draw_source(iSCREEN, ir, bg_saved, 0, 0);
 	} else {
-		ir.x = ir.y = 0;
-		ui_draw_source(bg_saved, ir, screen, INFO_X, GAME_BOARD_Y);
+		HelpBtn.fill.offsetY = ir.x = ir.y = 0;
+		ui_draw_source(bg_saved, ir, iSCREEN, INFO_X, GAME_BOARD_Y);
 	}
+	ui_draw_el_ico(&HelpBtn , iBG, iSCREEN);
 }
 
-static inline void game_board_msg(cstr_t str, const int len, float scale) {
+static inline void game_board_msg(cstr_t str, const int len, float s) {
 
 	typecr_t p, m = ui_text_rect(&Fonts[FNT_Fancy], str, len);
 	    p.offsetX = GAME_BOARD_X + (GAME_BOARD_W - m.width ) / 2,
 	    p.offsetY = GAME_BOARD_Y + (GAME_BOARD_H - m.height) / 2;
 
 	for (int i = 0; i < len; i++)
-		p = ui_draw_char(&Fonts[FNT_Fancy], screen, str[i], p);
+		p = ui_draw_char(&Fonts[FNT_Fancy], str[i], ' ', iSCREEN, p);
 }
 
 typedef enum {
@@ -194,7 +204,7 @@ void draw_ball_alpha(int n, int x, int y, int alpha);
 void draw_ball_size(int n, int x, int y, int size);
 void update_cells(int x1, int y1, int x2, int y2);
 void draw_ball_jump(int n, int x, int y, int num);
-static void show_score(void);
+static bool upd_main_score(bool reset);
 static bool check_hiscores(int score);
 static void show_hiscores(void);
 static void prep_main_board(bool is_new);
@@ -514,7 +524,8 @@ static void toggle_music()
 		sound_bgm_stop(&Sound);
 	}
 	status.store_prefs = true;
-	ui_draw_Tico(&BgmMute, iBG, screen, has_play);
+	BgmMute.fill.width = has_play ? -1 : 0;
+	ui_draw_el_bar(&BgmMute, iBG, iSCREEN);
 }
 
 static void toggle_loop() {
@@ -527,7 +538,8 @@ static void toggle_loop() {
 	else
 		game_prefs_del(&Prefs, FL_PREF_BGM_LOOP);
 	status.store_prefs = true;
-	draw_Button(Loop, loop);
+	PlayType.fill.offsetY = loop ? FONT_LIMON_HEIGHT : 0;
+	ui_draw_el_ico(&PlayType, iBG, iSCREEN);
 }
 
 void track_switch(void)
@@ -546,7 +558,7 @@ void track_switch(void)
 	}
 	music_start(tnum, GameDir);
 	if (pass) {
-		gfx_free_image(Track.on);
+		ui_free_image(Track.on);
 		draw_Track_title();
 	}
 }
@@ -573,8 +585,8 @@ static int set_volume(int x)
 		sound_set_bgm_volume(&Sound, vol_i);
 		sound_set_sfx_volume(&Sound, vol_i);
 	}
-	ui_set_el_value(&BgmVol, ATYPE_INT, mus_w + pos_x);
-	ui_draw_Hbar(&BgmVol, iBG, screen, pos_x);
+	BgmVol.fill.width = pos_x;
+	ui_draw_el_bar(&BgmVol, iBG, iSCREEN);
 	Prefs.bgm_vol = vol_i;
 	Prefs.sfx_vol = vol_i;
 	status.store_prefs = true;
@@ -583,10 +595,10 @@ static int set_volume(int x)
 
 void draw_cell(int x, int y)
 {
+	el_rect ir = ui_new_el_rect(0,0, BOARD_TILE_W, BOARD_TILE_H);
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
-	gfx_draw_bg(iBG, nx, ny, TILE_W, TILE_H);
-	gfx_draw(iCELL, nx, ny);
+	ui_draw_source(iCELL, ir, iSCREEN, nx, ny);
 }
 
 void update_cell(int x, int y)
@@ -642,7 +654,7 @@ void draw_ball_alpha_offset(int b, int i, int x, int y, int dx, int dy)
 	int nx, ny;
 	el_img img = Balls[b].alpha[i];
 	cell_to_screen(x, y, &nx, &ny);
-	gfx_draw(img, nx + 5 + dx, ny + 5 + dy);
+	ui_draw_image(img, iSCREEN, nx + 5 + dx, ny + 5 + dy);
 }
 
 void draw_ball_alpha(int n, int x, int y, int alpha)
@@ -666,7 +678,7 @@ void draw_ball_size(int b, int x, int y, int i)
 	el_img img = Balls[b].sizes[i];
 	int diff = (TILE_W - img->w) / 2;
 	cell_to_screen(x, y, &nx, &ny);
-	gfx_draw(img, nx + diff, ny + diff);
+	ui_draw_image(img, iSCREEN, nx + diff, ny + diff);
 }
 
 void draw_ball_jump(int b, int x, int y, int i)
@@ -676,7 +688,7 @@ void draw_ball_jump(int b, int x, int y, int i)
 	int diff  = (40 - img->h) + 5;
 	int diffx = (TILE_W - img->w) / 2;
 	cell_to_screen(x, y, &nx, &ny);
-	gfx_draw(img, nx + diffx, ny + diff);
+	ui_draw_image(img, iSCREEN, nx + diffx, ny + diff);
 }
 
 static int fetch_game_board()
@@ -725,10 +737,10 @@ Uint32 frame_handler(Uint32 ival, void *frame)
 		game_move_ball();
 		game_process_board();
 		game_process_pool();
-		show_score();
+		upd_main_score(false);
 		game_display_pool();
 		if (!game_display_board() && !ld.game_over) { /* nothing todo */
-			if (!board_next_move(&Board, &Move)) {
+			if (!(st->brd_state = board_next_move(&Board, &Move))) {
 				if (check_hiscores(board_get_score(&Board))) {
 					sound_sfx_play(&Sound, SND_Hiscore, 1);
 					show_hiscores();
@@ -751,6 +763,7 @@ static void loop_main_start()
 	struct __STAT__ frame = {
 		.quit      = false,
 		.game_over = false,
+		.brd_state = 0,
 		.locked    = false,
 		.paused    = false
 	};
@@ -766,10 +779,10 @@ static void loop_main_start()
 	     running = true;
 
 /* <==== Game Timer ====> */
-# define start_Game_Timer() timer_id = SDL_AddTimer(1e3, draw_Timer_digit, NULL)
+# define start_Game_Timer() timer_id = SDL_AddTimer(1e3, upd_main_time, NULL)
 # define  stop_Game_Timer() /*------*/ SDL_RemoveTimer( timer_id )
 # define  lock_Main_Frame() timer_id = 0, frame.locked = true
-# define ulock_Main_Frame() /*------*/    frame.locked = false
+# define ulock_Main_Frame() frame.game_over = frame.locked = false
 
 	SDL_AddTimer(20, frame_handler, &frame);
 	start_Game_Timer();
@@ -849,18 +862,16 @@ static void loop_main_start()
 				else if ((Track.hook = is_OnElem(Track, x, y))) {
 					track_switch();
 				}
-				else if (is_OnElem(Loop, x, y)) {
+				else if (ui_is_on_el_rect(&PlayType, x, y)) {
 					toggle_loop();
 				}
-				else if (is_OnElem(Info, x, y)) {
+				else if (ui_is_on_el_rect(&HelpBtn, x, y)) {
 					if (paused ^= 1) {
 						stop_Game_Timer();
 						toggle_game_pause(frame.paused = true);
 						scroll_info(&HelpGuide, 0, false);
-						draw_Button(Info, true);
 					} else {
 						toggle_game_pause(frame.paused = false);
-						draw_Button(Info, false);
 						start_Game_Timer();
 					}
 				} else
@@ -883,63 +894,63 @@ static void loop_main_start()
 				break;
 			default: refresh = false;
 			}
-			printf ("%i refrsh; winev %i\n", refresh, t);
 			if (refresh)
-				gfx_update();
+				ui_win_update(&Window, iSCREEN);
 		}
 	}
 	stop_Game_Timer();
 	board_wait_finish(&Board, &Move);
 }
 
-int cur_score = -1;
-int cur_mul = 0;
+int blinks = 0, cur_score = 0x001fffff, cur_mul = 0x001fffff;
 
-static void show_score(void)
+static bool upd_main_score(bool reset)
 {
-	static unsigned short timer = 0;
+	typecr_t p = ui_font_new_typecaret(SCORE_TAB_X, SCORE_TAB_Y);
+	el_rect or = ui_new_el_rect( SCORE_TAB_X, SCORE_TAB_Y, SCORE_TAB_W, FONT_FANCY_HEIGHT );
 
-	int w, x, h   = gfx_font_height();
-	int new_score = board_get_score(&Board),
-	         dmul = board_get_delta(&Board) - 1;
+	char txt[24];
+	int new_score = reset ? 0 : board_get_score(&Board), 
+	   l, new_mul = reset ? 0 : board_get_delta(&Board) - 1,
+	   diff_score = reset ? 1 : new_score - cur_score;
 
-	if (dmul < cur_mul)
-		cur_mul = dmul;
+	bool do_sound = false,
+	    has_bonus = reset ? false : blinks != 0,
+	     do_fills = reset ? true  : false,
+	     do_clear = reset ? true  : false;
 
-	if (new_score > cur_score || cur_score == -1) {
-		if (dmul > cur_mul && dmul > 1 && !(timer % BONUS_BLINKS)) {
-			snprintf(Score.name, sizeof(Score.name), "Bonus x%d", dmul);
-			w = gfx_chars_width(Score.name);
-			x = SCORE_X + ((SCORE_W - w) / 2);
-			gfx_draw_bg(iBG, _min(Score.x, x), SCORE_Y, _max(Score.w, w), h);
-			if ((timer / BONUS_BLINKS) & 1)
-				gfx_draw_text(Score.name, x, SCORE_Y, 0);
-			status.update_needed = true;
-			Score.x = x;
-			Score.w = w;
-			if (!timer) {
-				sound_sfx_play(&Sound, SND_Bonus, 1);
-				timer = BONUS_TIMER;
-			}
-		} else if (!timer) {
-			snprintf(Score.name, sizeof(Score.name), "SCORE: %d", ++cur_score);
-			w = gfx_chars_width(Score.name);
-			x = SCORE_X + ((SCORE_W - w) / 2);
-			gfx_draw_bg(iBG, _min(Score.x, x), SCORE_Y, _max(Score.w, w), h);
-			gfx_draw_text(Score.name, x, SCORE_Y, 0);
-			status.update_needed = true;
-			Score.x = x;
-			Score.w = w;
-			if (cur_score != new_score) {
-				sound_sfx_play(&Sound, SND_Click, 1);
-			}
-		}
+	if (reset) {
+		blinks = cur_mul = cur_score = 0;
+	} else if (has_bonus) {
+		do_fills = (blinks / BONUS_BLINKS) & 1,
+		do_clear = !do_fills;
+		if (new_mul > cur_mul)
+			blinks = (BONUS_TIMER-do_fills), cur_mul = new_mul, do_sound = true;
+		else
+			blinks--;
+	} else {
+		if (new_mul > cur_mul && new_mul > 1)
+			blinks = BONUS_TIMER,
+			has_bonus = do_sound = do_clear = do_fills = true;
+		else if (diff_score > 0)
+			cur_score += 20 > diff_score ? 1  :
+			            200 > diff_score ? 10 :
+			           2000 > diff_score ? 100: 1000,
+			new_score = cur_score, do_clear = do_fills = true;
+		else if (diff_score != 0)
+			cur_score = new_score, do_clear = do_fills = true;
+		cur_mul = new_mul;
 	}
-	if (timer == 1) {
-		cur_mul = dmul;
+	if (do_clear)
+		ui_draw_source(iBG, or, iSCREEN, or.x, or.y);
+	if (do_sound)
+		sound_sfx_play(&Sound, SND_Bonus, 1);
+	if (do_fills) {
+		l = snprintf(txt, sizeof(txt), (has_bonus ? "Bonus x%d" : "SCORE: %d"), (has_bonus ? new_mul : new_score));
+		ui_draw_text(tFANCY, txt, l, iSCREEN, p);
 	}
-	if (timer)
-		timer--;
+	if (do_clear || do_fills)
+		status.update_needed = true;
 }
 
 static bool check_hiscores(int score)
@@ -958,19 +969,28 @@ static bool check_hiscores(int score)
 	return stat;
 }
 
+const char adsdf_tab[]= "\
+------------------\
+_ A _ B _ C _ D _\
+|   |   |   |   |\
+|   |   |   |===|\
+|   |   |===|===|\
+|   |===|===|===|\
+";
+
 static void show_hiscores(void)
 {
 	char buff[64];
-	int w, h = gfx_font_height();
-	gfx_draw_bg(iBG, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
+	int w, h = FONT_FANCY_HEIGHT;
+	//gfx_draw_bg(iBG, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
 	for (int i = 0; i < HISCORES_NR; i++) {
-		snprintf(buff, sizeof(buff),"%d", i + 1);
-		w = gfx_chars_width(buff);
-		snprintf(buff, sizeof(buff),"%d.", i + 1);
-		gfx_draw_text(buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h, 0);
-		snprintf(buff, sizeof(buff),"%d", Records[i].hiscore);
-		w = gfx_chars_width(buff);
-		gfx_draw_text(buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h, 0);
+		//snprintf(buff, sizeof(buff),"%d", i + 1);
+		//w = ui_cstr_rect(tFANCY, buff).width;
+		//snprintf(buff, sizeof(buff),"%d.", i + 1);
+		//ui_make_cstr(buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h, 0);
+		//snprintf(buff, sizeof(buff),"%d", Records[i].hiscore);
+		//w = ui_cstr_rect(tFANCY, buff).width;
+		//gfx_draw_text(buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h, 0);
 	}
 }
 
@@ -1026,54 +1046,58 @@ static void free_main_ui()
 	};
 	ui_free_image( HelpGuide.img ); BgmVol.img = BgmMute.img = NULL;
 	ui_free_image( Restart  .img );
+	ui_free_image( PlayType .img );
+	ui_free_image( HelpBtn  .img );
 }
 
 static void prep_main_ui(void)
 {
 	srand(time(NULL));
 
-	Restart.img = ui_draw_ctxt(&Fonts[FNT_Fancy], "Restart");
-	BgmVol .img = SVGs[UI_Volume];
-	BgmMute.img = SVGs[UI_Music];
+	PlayType.img = ui_make_cstr(&Fonts[FNT_Limon], "PL\nLT");
+	HelpBtn .img = ui_make_cstr(&Fonts[FNT_Fancy], "{?}\n{x}");
+	Restart .img = ui_make_cstr(&Fonts[FNT_Fancy], "Restart\n");
+	BgmVol  .img = SVGs[UI_Volume];
+	BgmMute .img = SVGs[UI_Music];
 
 	int mus_w = ui_get_img_width (SVGs[UI_Music]),
 	    mus_h = ui_get_img_height(SVGs[UI_Music]) / 2,
 	    vol_w = ui_get_img_width (SVGs[UI_Volume]),
 	    vol_h = ui_get_img_height(SVGs[UI_Volume]) / 2,
-	    res_w = ui_get_img_width (Restart.img),
-	    res_h = ui_get_img_height(Restart.img);
+	    ply_w = ui_get_img_width (PlayType.img),
+	    inf_w = ui_get_img_width (HelpBtn.img),
+	    res_w = ui_get_img_width (Restart.img);
 
  	int res_x = SCORES_X + (SCORES_W - res_w) / 2,
- 	    res_y = SCREEN_H - res_h * 2 - res_h  / 2;
+ 		res_y = GAME_SCREEN_H - FONT_FANCY_HEIGHT * 2 - FONT_FANCY_HEIGHT  / 2,
+		mus_y = GAME_SCREEN_H - mus_h,
+		bgm_y = GAME_SCREEN_H - vol_h,
+		ply_y = GAME_SCREEN_H - mus_h - FONT_LIMON_HEIGHT;
 
-	ui_set_el_bounds(&Restart, res_x, res_y, res_w, res_h);
-	ui_draw_image(Restart.img, screen, res_x, res_y);
+	ui_set_el_bounds(&BgmMute ,     0, mus_y, mus_w, mus_h);
+	ui_set_el_bounds(&BgmVol  , mus_w, bgm_y, vol_w, vol_h);
+	ui_set_el_bounds(&Restart , res_x, res_y, res_w, FONT_FANCY_HEIGHT);
+	ui_set_el_bounds(&PlayType, mus_w, ply_y, inf_w, FONT_LIMON_HEIGHT);
+	ui_set_el_bounds(&HelpBtn ,     5,     5, inf_w, FONT_FANCY_HEIGHT);
 
-	Timer.x = SCREEN_W - (Timer.w = gfx_chars_width(Timer.name) * Timer.temp);
-	Timer.y = SCREEN_H - (Timer.h = res_h * Timer.temp);
-	gfx_draw_text(Timer.name, Timer.x, Timer.y, Timer.temp);
+	ui_draw_image(Restart.img, iSCREEN, res_x, res_y);
 
-	bool has_on = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY);
-	ui_set_el_bounds(&BgmMute, 0, SCREEN_H - mus_h, mus_w, mus_h);
-	ui_draw_Tico(&BgmMute, iBG, screen, has_on);
+	bool has_play = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY),
+	     has_loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP);
 
-	Loop.on = ui_draw_ctxt(&Fonts[FNT_Pixil], "LT");
-	Loop.off = ui_draw_ctxt(&Fonts[FNT_Pixil], "PL");
-	Info.on = ui_draw_ctxt(&Fonts[FNT_Fancy], "{x}");
-	Info.off = ui_draw_ctxt(&Fonts[FNT_Fancy], "{?}");
+	timer_pos = ui_cstr_rect(tPIXIL, "00 : 00");
 
-	Loop.w = iget_W(Loop), Loop.x = mus_w + 5;
-	Loop.h = iget_H(Loop), Loop.y = SCREEN_H - mus_h - Loop.h;
-	draw_Button(Loop, game_prefs_has(&Prefs, FL_PREF_BGM_LOOP));
+	BgmVol  .fill.width   = Prefs.bgm_vol * vol_w / 100;
+	BgmMute .fill.width   = has_play ? -1 : 0;
+	BgmVol  .fill.height  = BgmMute.fill.height = -1;
+	PlayType.fill.offsetX = HelpBtn.fill.offsetX = 0;
+	PlayType.fill.offsetY = has_loop ? FONT_LIMON_HEIGHT : 0;
+	HelpBtn .fill.offsetY = 0;
 
-	Info.w = iget_W(Info), Info.x = 5;
-	Info.h = iget_H(Info), Info.y = 5;
-	draw_Button(Info, Info.hook);
-
-	int fill_w = Prefs.bgm_vol * vol_w / 100;
-	ui_set_el_bounds(&BgmVol, mus_w, SCREEN_H - vol_h, vol_w, vol_h);
-	ui_set_el_value (&BgmVol, ATYPE_INT, mus_w + fill_w);
-	ui_draw_Hbar(&BgmVol, iBG, screen, fill_w);
+	ui_draw_el_bar(&BgmVol , NULL, iSCREEN);
+	ui_draw_el_bar(&BgmMute, NULL, iSCREEN);
+	ui_draw_el_ico(&PlayType, iBG, iSCREEN);
+	ui_draw_el_ico(&HelpBtn , iBG, iSCREEN);
 
 	Track.x = mus_w + vol_w + Track.temp / 2;
 	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
@@ -1082,7 +1106,7 @@ static void prep_main_ui(void)
 		Track.on = ui_make_text(&Fonts[FNT_Pixil], Track.name, sizeof(Track.name));
 		Track.w  = iget_W(Track);
 		Track.h  = iget_H(Track);
-		ui_scale_image(Track.on, screen, Track.x, Track.y, 0.5);
+		ui_scale_image(Track.on, iSCREEN, Track.x, Track.y, 0.5);
 	}
 	if(!HelpGuide.img) {
 		HelpGuide.img  = ui_make_text(&Fonts[FNT_Limon], help_text , sizeof(help_text)),
@@ -1110,10 +1134,8 @@ static void prep_main_board(bool is_new)
 	}
 	board_init_move(&Move , fetch_game_board());
 	draw_board();
-	cur_score = is_new ? -1 : board_get_score(&Board) - 1;
-	cur_mul   = is_new ?  0 : board_get_delta(&Board) - 1;
-	draw_Timer_digit(0, NULL);
-	show_score();
+	upd_main_time(0, NULL);
+	upd_main_score(is_new);
 	show_hiscores();
 	status.update_needed = status.game_over = false;
 }
@@ -1152,8 +1174,8 @@ int main(int argc, char **argv) {
 	/* */ game_load_settings(&Prefs, sys_get_fpath(cfg_dir, CL_PREFS_NAME));
 
 	// Initialize SDL
-	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
-		fprintf(stderr, "Couldn't initialize SDL: %s\n", SDL_GetError());
+	if (!ui_win_create(&Window, GAME_SCREEN_W, GAME_SCREEN_H)) {
+		printf("Couldn't create SDL Window: %s\n", SDL_GetError());
 		return -1;
 	}
 	// Load fonts
@@ -1162,17 +1184,13 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 	// Initialize Graphic and UI
-	if (gfx_init(path_gfx, SCREEN_W, SCREEN_H)) {
-		fprintf(stderr, "graphics.c: Unable to create %dx%d window - '%s'\n", SCREEN_W, SCREEN_H, SDL_GetError());
-		return -1;
-	}
 	if (!game_load_images(SVGs, GameDir)) {
 		puts("Can't load game images\n");
 		return -1;
 	}
-	ui_draw_image(iBG, screen, 0, 0);
+	ui_draw_image(iBG, iSCREEN, 0, 0);
 	draw_Msg("Loading...",0);
-	gfx_update();
+	ui_win_update(&Window, iSCREEN);
 
 	if (game_init_sound(&Sound, &Prefs, GameDir))
 		music_start(Prefs.track_num, GameDir);
@@ -1192,7 +1210,6 @@ int main(int argc, char **argv) {
 # endif
 	free_main_ui();
 	sound_close_done(&Sound);
-	gfx_done();
-	SDL_Quit();
+	ui_win_destroy(&Window);
 	return 0;
 }
