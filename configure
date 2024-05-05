@@ -1,6 +1,10 @@
 #!/bin/sh
 
 CFLAGS='-Wall -O2 -std=c11'
+LDFLAGS='-lm'
+VERSION='1.4'
+APPNAME='color-lines'
+TITLE='Color Lines'
 INSTDIR='/opt'
 CC='cc'
 
@@ -11,9 +15,10 @@ for i in "$@"; do
       echo "  --instdir=*      change install prefix"
       echo "  --cc=*           set compiler"
       echo "  --cflags=*       set compiler flags\n"
-      echo "  [ CFLAGS special attributes ]"
-      echo "  -DCL_IMG_DIR=*   static path for game images"
-      echo "  -DCL_SND_DIR=*   static path for game sounds"
+      echo "  [ special pre-build definitions ]"
+      echo "  --appname=*   change app config name [Default: $APPNAME] "
+      echo "  --version=*   change game version    [Default: $VERSION]"
+      echo "  --title=*     change the game title  [Default: $TITLE]"
       exit
       ;;
     --instdir=*)
@@ -24,6 +29,15 @@ for i in "$@"; do
       ;;
     --cc=*)
       CC="${i#*=}"
+      ;;
+    --appname=*)
+      APPNAME="${i#*=}"
+      ;;
+    --version=*)
+      VERSION="${i#*=}"
+      ;;
+    --title=*)
+      TITLE="${i#*=}"
       ;;
     *)
       # unknown option
@@ -40,9 +54,26 @@ else
   CNAME="1;39;49m$CC"
 fi
 
+SDL2L=`sdl2-config --libs`
+SDL2V=`sdl2-config --version`
+SDL2C=`sdl2-config --cflags`
+
+if [ ! $SDL2V ]; then
+  SDL2C="(not found)"
+else
+  SDL2L="$SDL2L -lSDL2_image -lSDL2_mixer"
+fi
+
+HEAD=`head -c7 .git/FETCH_HEAD`
+OSNAME=`uname -o`
+MARCH=`uname -m`
+
 echo ""
+echo "  os, arch       : $OSNAME $MARCH"
 echo "  compiler       : \033[$CNAME\033[0m"
 echo "  compiler flags : \033[1;39;49m$CFLAGS\033[0m"
+echo "  SDL2 version   : \033[1;39;49m$SDL2V\033[0m"
+echo "  SDL2 includes  : \033[1;39;49m$SDL2C\033[0m"
 echo "  install prefix : \033[1;39;49m$INSTDIR\033[0m"
 echo ""
 
@@ -52,11 +83,21 @@ else
   UC='cre'
 fi
 
-if [ $CFUND ]; then
+if [ $CFUND ] && [ $SDL2V ]; then
   sed -e "s#@@CC@@#$CC#" \
-      -e "s#@@CFLAGS@@#$CFLAGS#" \
+      -e "s#@@OS@@#$OSNAME#" \
+      -e "s#@@HEAD@@#$HEAD#" \
+      -e "s#@@ARCH@@#$MARCH#" \
+      -e "s#@@APPNAME@@#$APPNAME#" \
+      -e "s#@@VERSION@@#$VERSION#" \
+      -e "s#@@CFLAGS@@#$CFLAGS $SDL2C#" \
+      -e "s#@@LDFLAGS@@#$LDFLAGS $SDL2L#" \
       -e "s#@@INSTDIR@@#$INSTDIR#" \
       in/Makefile.in > Makefile
+  mkdir -p build/
+  sed -e "s#@BINDIR#$INSTDIR#g" \
+      -e "s#@VER#$VERSION#" \
+      in/desktop.in > build/$APPNAME.desktop
   FIN='done'
 fi
 
@@ -79,7 +120,9 @@ do
   esac
 done`
 
-printf '%s\n%s\n%s\n'\
+printf '%s\n%s\n%s\n%s\n%s\n'\
+  "# define CL_NAME  \"$APPNAME\""\
+  "# define CL_TITLE \"$TITLE\""\
   "# define CL_ABOUT \"$COPYING\""\
   "# define CL_HELP  \"$README\""\
   "# define MUSIC_PLAYLIST $PLYLIST"\

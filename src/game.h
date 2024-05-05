@@ -64,14 +64,14 @@ typedef struct {
 	.hiscore = i, .time = 0, .who = 0,\
 }
 /* Load/Save last board session */
-extern bool game_load_session(desk_t *brd, cstr_t path);
-extern void game_save_session(desk_t *brd, cstr_t path);
+extern bool game_load_session(desk_t *brd, path_t *cfg_dir);
+extern void game_save_session(desk_t *brd, path_t *cfg_dir);
 /* Read/Write user settings */
-extern bool game_load_settings(prefs_t *pref, cstr_t path);
-extern void game_save_settings(prefs_t *pref, cstr_t path);
+extern bool game_load_settings(prefs_t *pref, path_t *cfg_dir);
+extern void game_save_settings(prefs_t *pref, path_t *cfg_dir);
 /* Load/Save records tab */
-extern void game_load_records(record_t list[], cstr_t path);
-extern void game_save_records(record_t list[], cstr_t path);
+extern void game_load_records(record_t list[], path_t *cfg_dir);
+extern void game_save_records(record_t list[], path_t *cfg_dir);
 
 /* Init game subsystem */
 extern SUCESS game_init_sound(sound_t *snd, prefs_t *pref, path_t game_dir);

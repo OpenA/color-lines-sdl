@@ -5,8 +5,6 @@
 #define SCORE_W      (BOARD_X - 23)
 #define UI_BITMAPS_L (1+SVG_IMAGES_N)
 
-char path_gfx[ SYS_PATH_L ];
-
 /* Game Hiscores */
 static record_t Records[HISCORES_NR] = {
 	DEFAULT_RECORD(50), DEFAULT_RECORD(40),
@@ -501,9 +499,9 @@ static void music_start(int n, path_t game_dir)
 	cstr_t file = trackList[n].file,
 	      title = trackList[n].title;
 
-	sys_set_dpath(game_dir, MUSIC_DIR);
+	sys_make_dir_path(&game_dir, MUSIC_DIR);
 
-	if (sound_bgm_play(&Sound, n, sys_get_spath(game_dir, file))) {
+	if (sound_bgm_play(&Sound, n, sys_make_file_path(&game_dir, file))) {
 		sound_set_bgm_onEnd(track_switch);
 		strcpy(Track.name, title);
 	}
@@ -969,29 +967,28 @@ static bool check_hiscores(int score)
 	return stat;
 }
 
-const char adsdf_tab[]= "\
-------------------\
-_ A _ B _ C _ D _\
-|   |   |   |   |\
-|   |   |   |===|\
-|   |   |===|===|\
-|   |===|===|===|\
-";
-
 static void show_hiscores(void)
 {
 	char buff[64];
 	int w, h = FONT_FANCY_HEIGHT;
-	//gfx_draw_bg(iBG, SCORES_X, SCORES_Y, SCORES_W, HISCORES_NR * h);
-	for (int i = 0; i < HISCORES_NR; i++) {
-		//snprintf(buff, sizeof(buff),"%d", i + 1);
-		//w = ui_cstr_rect(tFANCY, buff).width;
-		//snprintf(buff, sizeof(buff),"%d.", i + 1);
-		//ui_make_cstr(buff, SCORES_X + FONT_WIDTH - w, SCORES_Y + i * h, 0);
-		//snprintf(buff, sizeof(buff),"%d", Records[i].hiscore);
-		//w = ui_cstr_rect(tFANCY, buff).width;
-		//gfx_draw_text(buff, SCORES_X + SCORES_W - w, SCORES_Y + i * h, 0);
+
+	unsigned int r, nR[3] = {0,0,0};
+	int i, l, n; 
+	for (i = 0; i < HISCORES_NR; i++) {
+		r = Records[i].hiscore;
+		for (n = 0; n < 3; n++) {
+			if (nR[n] <= r) {
+				nR[n] = r;
+				break;
+			}
+		}
 	}
+	l = snprintf(buff, sizeof(buff), "%i\n\n%i\n\n%i", nR[0], nR[1], nR[2]);
+	typecr_t m = ui_text_rect(tFANCY, buff, l),
+	         p = ui_font_new_typecaret(0, SCORES_Y);
+	el_rect ir = ui_new_el_rect(SCORES_X, SCORES_Y, SCORES_W, m.height);
+	ui_draw_source(iBG, ir, iSCREEN, SCORES_X, SCORES_Y);
+	ui_draw_text(tFANCY, buff, l, iSCREEN, p);
 }
 
 void prep_main_balls()
@@ -1140,26 +1137,43 @@ static void prep_main_board(bool is_new)
 	status.update_needed = status.game_over = false;
 }
 
-int main(int argc, char **argv) {
+static SUCESS parse_main_args(const int alen, cstr_t args[])
+{
+	cstr_t p = NULL;
+
+	for (int i = 1; i < alen; i++) {
+		char s = args[i][0],
+		     c = args[i][1],
+		     k = args[i][2] == '=';
+
+		switch (s == '-' ? c : '\0') {
+			case 'P':
+				p = &args[i][2 + k];
+				break;
+			default:
+				continue;
+		}
+# ifdef DEBUG
+		printf("\n- found arg:  %c%c%s\n", s,c,p);
+#endif
+	}
+	return p ? SysExtractArgPath(&GameDir, p, 1) : SysGetExecPath(&GameDir);
+}
+
+int main(int argc, cstr_t argv[]) {
 
 	path_t cfg_dir;
 	bool rel = false;
 
-#if CL_IMG_DIR && CL_SND_DIR
-	strncat(path_gfx, CL_IMG_DIR, sizeof(CL_IMG_DIR));
-#else
-
-	if (!SysGetExecPath(&GameDir)) {
+	if (!parse_main_args(argc, argv)) {
 		puts("Can't fing game directory\n");
 		return -1;
 	}
 # ifdef DEBUG
 	printf("\n- found gamedir:  %s\n", GameDir.path);
-# endif
-	_strncomb(path_gfx, GameDir.path, "gfx/", GameDir.len);
 #endif
 
-	if (!SysAcessConfigPath(&cfg_dir, "color-lines")) {
+	if (!SysAcessConfigPath(&cfg_dir)) {
 		puts("Can't acess home config directory check you permissions\n");
 		return -1;
 	}
@@ -1167,11 +1181,11 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "- found config:   %s\n\n %s\n\n", cfg_dir.path,
 		"Note: in debug-mode progress will not be saved.");
 # else
-	rel = game_load_session(&Board , sys_get_fpath(cfg_dir, CL_SESSION_NAME));
-	      game_load_records(Records, sys_get_fpath(cfg_dir, CL_RECORDS_NAME));
+	rel = game_load_session(&Board , &cfg_dir);
+	      game_load_records(Records, &cfg_dir);
 # endif
 	// load settings before sound init
-	/* */ game_load_settings(&Prefs, sys_get_fpath(cfg_dir, CL_PREFS_NAME));
+	/* */ game_load_settings(&Prefs, &cfg_dir);
 
 	// Initialize SDL
 	if (!ui_win_create(&Window, GAME_SCREEN_W, GAME_SCREEN_H)) {
@@ -1202,11 +1216,11 @@ int main(int argc, char **argv) {
 	/* END GAME CODE HERE */
 # ifndef DEBUG
 	// save game progress
-	    game_save_session(&Board , sys_get_fpath(cfg_dir, CL_SESSION_NAME));
+	    game_save_session(&Board , &cfg_dir);
 	if (status.store_hiscore)
-	    game_save_records(Records, sys_get_fpath(cfg_dir, CL_RECORDS_NAME));
+	    game_save_records(Records, &cfg_dir);
 	if (status.store_prefs)
-	    game_save_settings(&Prefs, sys_get_fpath(cfg_dir, CL_PREFS_NAME));
+	    game_save_settings(&Prefs, &cfg_dir);
 # endif
 	free_main_ui();
 	sound_close_done(&Sound);

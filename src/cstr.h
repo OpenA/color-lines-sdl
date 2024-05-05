@@ -7,16 +7,25 @@ typedef const char* cstr_t;
 # define _strcomb(  dst, src, _T)     strcat( strcpy(dst, src   ), _T)
 # define _strcatl(  dst, src, _T)     strcat( strcat(dst, src   ), _T)
 # define _strncomb( dst, src, _T, l)  strcat(strncpy(dst, src, l), _T)
-# define _strrepl(  dst, s,   _T)    _strnrepl(dst, s, _T, sizeof(_T))
 
-static inline cstr_t _strnrepl(
-	char  *dst, unsigned int s,
-	cstr_t src, unsigned int l
+# define cstr_rep_lit(_T, dst, si) cstr_rep_n(_T, sizeof(_T), dst, si)
+# define cstr_cpy_lit(_T, dst, mx) cstr_cpy_a(_T, (signed)mx, dst)
+
+static inline int cstr_rep_n(
+	cstr_t src, const int repNum, char dst[], int sidx
 ) {
-	for(int i = 0; i < l; i++) {
-	    dst[i + s] =  src[i];
-	}; (dst[s + l] = '\0');
-	return dst;
+	for (int i = 0; i < repNum; i++, sidx++)
+	   dst[sidx] = src[i];
+	return sidx;
+}
+
+static inline int cstr_cpy_a(
+	cstr_t src, const int sizeMax, char dst[]
+) {
+	signed idx = 0;
+	while (idx < sizeMax && src[idx] != '\0')
+	   dst[idx] = src[idx], idx++;
+	return idx;
 }
 
 #endif

@@ -1,106 +1,82 @@
-NAME     := color-lines
-VERSION  := 1.3
-VERTITLE := $(NAME)-$(VERSION)-$(shell uname -m)
-BUILDVER := $(head -c7 .git/FETCH_HEAD)
+APPNAME  := @@APPNAME@@
+DISTNAME := $(APPNAME)-@@VERSION@@-@@ARCH@@
+BUILDVER := @@HEAD@@
 COMPILER := @@CC@@
-INSTDIR  := @@INSTDIR@@/$(NAME)
+INSTDIR  := @@INSTDIR@@/$(APPNAME)
+OS       := @@OS@@
+HASEXEC  := $(shell which build/$(APPNAME))
 
 ifdef COMPILER
 CC       := $(COMPILER)
 endif
 
-CFLAGS   := @@CFLAGS@@ $(shell sdl2-config --cflags) -DCL_VER=\"$(VERSION)\"
-LDFLAGS  := $(shell sdl2-config --libs) -lm -lSDL2_image -lSDL2_mixer -lSDL2_ttf
+CFLAGS   := @@CFLAGS@@
+LDFLAGS  := @@LDFLAGS@@
 
 SRC      := main.c
 OBJ      := $(patsubst %.c, %.o, $(SRC))
-OS       := $(shell uname | sed "y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/")
 
-ifeq ($(shell which ./color-lines),)
-all: color-lines
+ifeq ($(HASEXEC),)
+all: appexec
 else
 all:
-	$(echo 'color-lines: compiled')
+	echo 'build/$(APPNAME) compiled'
 endif
 
-ifeq ($(OS),DARWIN)
-
-INSTDIR := $(HOME)/Applications/Color\ Lines.app/Contents/MacOS
-
-icns:
-	mkdir CL.iconset
-	sips -z 16 16   gfx/joker.png --out CL.iconset/icon_16x16.png
-	sips -z 32 32   gfx/joker.png --out CL.iconset/icon_16x16@2x.png
-	sips -z 32 32   gfx/joker.png --out CL.iconset/icon_32x32.png
-	sips -z 64 64   gfx/joker.png --out CL.iconset/icon_32x32@2x.png
-	iconutil -c icns CL.iconset
-	rm -R CL.iconset
-
-__os_inst: icns
-	install -d $(INSTDIR)/../Resources
-	install -m 755 CL.icns $(INSTDIR)/../Resources
-	echo 'APPL????' > $(INSTDIR)/../PkgInfo
-	sed "s#@BUILDVER#$(BUILDVER)#" in/plist.in | sed "s#@VER#$(VERSION)#" > $(INSTDIR)/../info.plist
-
-tar: all
-	ln -sf ./ $(VERTITLE)
-	tar --exclude='./*/.*' -cf $(VERTITLE).tar Color\ Lines.app
-
+ifeq ($(OS),Windows)
+## to do
 else ## Other UNIX
 
 CFLAGS += -D_POSIX_C_SOURCE=200809L
 
-ifeq ($(shell which ./color-lines.desktop),)
-desktop:
-	sed "s#@BINDIR#$(INSTDIR)#g" in/desktop.in | sed "s#@VER#$(VERSION)#" > color-lines.desktop
-else
-desktop:
-	$(echo 'color-lines.desktop: compiled')
-endif
-
-__os_inst: desktop
+__os_inst:
 	install -d $(HOME)/.local/share/applications
-	install -m 755 color-lines.desktop $(HOME)/.local/share/applications/color-lines.desktop
+	install -m 755 build/$(APPNAME).desktop $(HOME)/.local/share/applications/
 
-tar: all desktop
-	mkdir -p dist && cd dist && ln -sf ../ $(NAME) && tar --exclude='./*/.*' -cf \
-	$(VERTITLE).tar $(NAME)/gfx $(NAME)/sounds $(NAME)/color-lines $(NAME)/color-lines.desktop
-	rm dist/$(NAME)
+tar: all
+	mkdir -p dist && cd dist && ln -sf ../ build/$(APPNAME) && tar --exclude='./*/.*' -cf \
+	$(DISTNAME).tar $(APPNAME)/vector $(APPNAME)/music $(APPNAME)/sounds $(APPNAME)/$(APPNAME) $(APPNAME)/$(APPNAME).desktop
+	rm dist/$(APPNAME)
 
 endif
 
 debug: CFLAGS += -DDEBUG
-debug: color-lines
+debug: appexec
 
-color-lines: $(OBJ)
-	$(CC) -o $(@) $(CFLAGS) $(^) $(LDFLAGS)
-	strip color-lines
+run: all
+	build/$(APPNAME) -P="$(shell pwd)"
+
+appexec: $(OBJ)
+	$(CC) -o build/$(APPNAME) $(CFLAGS) $(^) $(LDFLAGS)
+	strip build/$(APPNAME)
 	rm -f *.o
 
 $(OBJ): %.o : %.c
 	$(CC) -c $(<) $(I) $(CFLAGS)
 
 tar.lzma: tar
-	lzma -9 dist/$(VERTITLE).tar
+	lzma -9 dist/$(DISTNAME).tar
 
 tar.lz: tar
-	lzip -9 dist/$(VERTITLE).tar
+	lzip -9 dist/$(DISTNAME).tar
 
 tar.xz: tar
-	xz -9 dist/$(VERTITLE).tar
+	xz -9 dist/$(DISTNAME).tar
 
 tar.bz2: tar
-	bzip2 --best dist/$(VERTITLE).tar
+	bzip2 --best dist/$(DISTNAME).tar
 
 tar.gz: tar
-	gzip --best dist/$(VERTITLE).tar
+	gzip --best dist/$(DISTNAME).tar
 
 clean:
-	rm -f *.o color-lines color-lines.desktop
+	rm -f *.o build/$(APPNAME)
 
 install: all __os_inst
 	install -d $(INSTDIR)/sounds
-	install -d $(INSTDIR)/gfx
+	install -d $(INSTDIR)/music
+	install -d $(INSTDIR)/vector
 	install -m 755 sounds/* $(INSTDIR)/sounds/
-	install -m 755 gfx/* $(INSTDIR)/gfx/
-	install -m 755 color-lines $(INSTDIR)
+	install -m 755 music/*  $(INSTDIR)/music/
+	install -m 755 vector/* $(INSTDIR)/vector/
+	install -m 755 build/$(APPNAME) $(INSTDIR)

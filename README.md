@@ -1,19 +1,39 @@
-## Color Lines
+## Classic «Color Lines» game engine
 
-!|<img src="https://user-images.githubusercontent.com/265758/80093355-c0c89b00-857d-11ea-8816-bf6e6709ef88.png" width="500" >
------------- | -------------
+Based on Peter Kosyh [code](https://code.google.com/p/color-lines).
 
-This game is a fork taken from author’s [original SVN](https://code.google.com/p/color-lines) repository and rewritten using SDL2.
+|    | 🌈 |    |    |    |    | 🔵 |    | 🔴
+|----|----|----|----|----|----|----|----|----
+|    | ⚪ | 🟢 |    | ⚪ |    | 🔵 |    |
+| 🔴 | 🟢 |    |    |    |    |    |    | 🔴
+| 🟢 |    | 🟤 |    |    | 🟣 | 🌩️ |    | 🔴
+|    | 🟤 | 🟢 | ⚪ | ⚪ | 🟤 |    |    | 🔴
+|    | 🟤 |    | 🟡 | 🟤 |    |    | 🟣 |
+| 🧨 |    |    | 🟣 |    | 🟣 |    |    |
+|    | 🟡 |    |    | 🔴 |    |    | 🟠 | 🟠
+|    |    | 🟢 |    |    | 🔴 | 🎨 |    |
+
+🔴🟤🟢🟡🟠🔵🟣⚫⚪🎨🪩💣💥🧨⛈️🌩️💎🌟⭐🌈
 
 #### Build instructions
-On macOS and Linux, you can use https://brew.sh pkg manager to install the following dependencies:
+The following dependencies are required:
+
+`git sdl2 sdl2_mixer sdl2_image`
+
+On macOS (and Linux) you can use https://brew.sh pkg manager to install them.
+
+When everything is ready, do
 ```sh
-brew install git sdl2 sdl2_mixer sdl2_image sdl2_ttf
-```
-next step:
-```sh
-git clone https://github.com/OpenA/color-lines-sdl.git
-cd color-lines-sdl
-./configure
+./configure [options] # Run with -h to check options you can change.
 make
 ```
+
+You can do the following things with `make` command:
+* `make install`   - to install game in to prefix.
+* `make run`       - just run game from build directory.
+* `make debug run` - build and run debug version.
+* `make clean`     - cleanup build directory.
+
+## TODO:
+* support «Wonder Lines» game logic and `.level` files
+* optional pseudo-gui
