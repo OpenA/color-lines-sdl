@@ -21,7 +21,7 @@ typecr_t ui_text_rect(zfont_t *fnt, cstr_t txt, const int len)
 		if (p > w)
 			w = p;
 	}
-	return ui_font_new_typecaret(w,h);
+	return ui_new_rectsz(w,h);
 }
 
 inline typecr_t ui_draw_char(zfont_t *fnt, const char c, const char f, el_img out, typecr_t p)
@@ -51,10 +51,14 @@ inline typecr_t ui_draw_char(zfont_t *fnt, const char c, const char f, el_img ou
 	return p;
 }
 
-inline void ui_draw_text(zfont_t *fnt, cstr_t txt, const int len, el_img out, typecr_t p)
+inline void ui_draw_text(zfont_t *fnt, cstr_t txt, const int len, el_img out, typecr_t sp)
 {
-	for (int i = 0; i < len && txt[i] != '\0'; i++)
+	typecr_t p = sp;
+	for (int i = 0; i < len && txt[i] != '\0'; i++) {
 		p = ui_draw_char(fnt, txt[i], ' ', out, p);
+		if (txt[i] == '\n')
+			p.offsetX = sp.offsetX;
+	}
 }
 
 el_img ui_make_text(zfont_t *fnt, cstr_t txt, const int len)
@@ -66,7 +70,9 @@ el_img ui_make_text(zfont_t *fnt, cstr_t txt, const int len)
 		fnt->bitmap->format->Bmask,
 		fnt->bitmap->format->Amask);
 
-	ui_draw_text(fnt, txt, len, img, ui_font_new_typecaret(0,0));
+	typecr_t p = ui_new_offset(0,0);
+	for (int i = 0; i < len && txt[i] != '\0'; i++)
+		p = ui_draw_char(fnt, txt[i], ' ', img, p);
 	return img;
 }
 
@@ -106,6 +112,63 @@ void ui_init_font(zfont_t *fnt, el_img bitmap, measure_t g)
 		}
 	}
 # undef has_pixel_alpha
+}
+
+/* fills horisontal/vertical bar with fill attribute */
+void ui_draw_el_bar(elem_t *el, el_img restrict bg, el_img restrict out, fill_m mode)
+{
+	el_img img = ui_get_el_bitmap(el);
+	el_rect r0 = ui_get_el_bounds(el),
+	        r1 = ui_new_el_rect(0, 0, r0.w, r0.h),
+	        r2 = ui_new_el_rect(0, 0, el->fill.width, el->fill.height);
+
+	bool fb = r2.w && r2.h;
+	if ( fb )
+		r2.w = to_min(r2.w, r0.w),
+		r2.h = to_min(r2.h, r0.h);
+
+	switch (fb ? mode : -1) {
+	case HR_Outside: r2.x = r0.w - r2.w;
+	case HL_Outside: r2.y = r0.h;
+		break;
+	case HR_Inside:  r1.x = r0.w - r2.w;
+	case HL_Inside:
+		r1.w = r2.w, r2.w = r0.w,
+		r1.h = r2.h, r2.h = r1.y = r0.h;
+		break;
+	default: /* skip */
+	}
+	if (bg) SDL_UpperBlit(bg , &r0, out, &r0);
+	/* ~ */ SDL_UpperBlit(img, &r1, out, &r0);
+	if (fb) SDL_UpperBlit(img, &r2, out, &r0);
+}
+
+/* draw trigger icon */
+void ui_draw_el_ico(elem_t *el, el_img restrict bg, el_img restrict out)
+{
+	el_img img = ui_get_el_bitmap(el);
+	el_rect or = ui_get_el_bounds(el),
+	        ir = ui_new_el_rect(el->fill.offsetX, el->fill.offsetY, or.w, or.h);
+
+	if (bg) SDL_UpperBlit(bg , &or, out, &or);
+	/* ~ */ SDL_UpperBlit(img, &ir, out, &or);
+}
+
+void ui_draw_scroll(elem_t *el, el_img restrict bg, el_img restrict out, int x, int y, bool save_pos)
+{
+	el_img img = ui_get_el_bitmap(el);
+	el_rect or = ui_get_el_bounds(el),
+	        ir = ui_new_el_rect(x, y, or.w, or.h);
+
+//	ir.x += el->fill.offsetX;
+	ir.y += el->fill.offsetY;
+
+	if (save_pos) {
+//		el->fill.offsetX = ir.x > or.w ? (ir.x = or.w) : ir.x < 0 ? (ir.x = 0) : ir.x;
+		el->fill.offsetY = ir.y > or.h ? (ir.y = or.h) : ir.y < 0 ? (ir.y = 0) : ir.y;
+	}
+	SDL_UpperBlit(bg , &or, out, &or);
+	SDL_UpperBlit(img, &ir, out, &or);
 }
 
 int ui_win_create(window_t *win, int scr_w, int scr_h)

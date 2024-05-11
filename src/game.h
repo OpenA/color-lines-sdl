@@ -26,6 +26,7 @@ enum IMG_T {
 	UI_Bg = 0,
 	UI_Cell,
 	UI_BallsCollect,
+	UI_ProgressBar,
 	UI_Volume,
 	UI_Music,
 	UI_Blank,

@@ -3,6 +3,9 @@
 # define to_min(a,b) (a)<(b)?(a):(b) // 'min' was a global define
 # define _CL_DEFINES_H_
 
+# include <stdbool.h>
+# define to_range(w,i,imx) (w * (i * 100 / imx) / 100)
+
 // Fonts Defines
 # define FONT_LETTER_R 3
 # define FONT_LETTER_N 32
@@ -21,6 +24,8 @@
 # define FONT_LIMON_WIDTH  24
 # define FONT_LIMON_HEIGHT 28
 # define FONT_LIMON_SPACE  12
+
+# define FONT_GET_HLINE(_N) (FONT_##_N##_HEIGHT + FONT_##_N##_PADDING*2)
 
 // Board Defines
 # define BOARD_DESK_W  9
@@ -62,17 +67,18 @@
 	x > GAME_BOARD_X && x < GAME_BOARD_X + GAME_BOARD_W &&\
 	y > GAME_BOARD_Y && y < GAME_BOARD_Y + GAME_BOARD_H)
 
-#define SCORE_TAB_X 40
-#define SCORE_TAB_Y 75
-#define SCORE_TAB_W (GAME_BOARD_X - TILE_W - SCORE_TAB_X * 2)
+# define SCORE_TAB_X GAME_SCREEN_P
+# define SCORE_TAB_Y 75
+# define SCORE_TAB_W 175
+# define SCORE_TAB_ROW(_n) (SCORE_TAB_Y + FONT_GET_HLINE(FANCY) *_n)
 
 // Info Defines
 # define INFO_X (GAME_BOARD_X - BOARD_TILE_W - BOARD_POOL_N - 20)
 # define INFO_W (GAME_BOARD_W + BOARD_TILE_W + BOARD_POOL_N + 20)
 
-# define INFO_Y_JOCKER (18*FONT_FANCY_HEIGHT)
-# define INFO_Y_FLUSH  (21*FONT_FANCY_HEIGHT)
-# define INFO_Y_BRUSH  (24*FONT_FANCY_HEIGHT)
-# define INFO_Y_BOMB   (27*FONT_FANCY_HEIGHT)
+# define INFO_Y_JOCKER FONT_GET_HLINE(FANCY) * 18
+# define INFO_Y_FLUSH  FONT_GET_HLINE(FANCY) * 21
+# define INFO_Y_BRUSH  FONT_GET_HLINE(FANCY) * 24
+# define INFO_Y_BOMB   FONT_GET_HLINE(FANCY) * 27
 
 #endif //_CL_DEFINES_

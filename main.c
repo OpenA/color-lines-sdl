@@ -1,8 +1,6 @@
 #include "main.h"
 #include "src/game.c"
 
-#define SCORES_W     (BOARD_X - TILE_W - SCORES_X - 40)
-#define SCORE_W      (BOARD_X - 23)
 #define UI_BITMAPS_L (1+SVG_IMAGES_N)
 
 /* Game Hiscores */
@@ -21,7 +19,7 @@ static sound_t Sound;
 static prefs_t Prefs = DEFAULT_PREFS();
 static zfont_t Fonts[FONT_NAME_N];
 
-static elem_t SfxVol, SfxMute, PlayType, HelpGuide,
+static elem_t SfxVol, SfxMute, PlayType, HelpGuide, MyScore,
               BgmVol, BgmMute, PlayList, HelpBtn, Restart;
 static desk_t Board;
 static move_t Move;
@@ -51,15 +49,14 @@ static struct {
 	.running       = true
 };
 
-typedef struct __ELS__ {
-	char name[ 128 ];
-	int x, y, w, h;
-	el_img on,*off;
-	float temp;
-	bool touch, hook;
-} elemen_t;
-
-static elemen_t Track   = { .temp = 14 };
+static struct _PLAYER_ {
+	unsigned score:21, dmul:7, fl0:4, scmax:21, blinks:7, fl1:4;
+} Player = {
+	.score = 0x1FFFFFu,
+	.dmul  = 0x7F,
+	.blinks= 0,
+	.scmax = 0
+};
 static typecr_t timer_pos;
 
 int   moving_nr = 0;
@@ -78,9 +75,8 @@ static struct {
 #define tPIXIL &Fonts[FNT_Pixil]
 #define tLIMON &Fonts[FNT_Limon]
 
-#define is_OnElem(el,x,y) !( \
-	x < el.x || y < el.y || x >= el.x + el.w || y >= el.y + el.h \
-)
+#define scroll_info(el,_y,_s) ui_draw_scroll(el, iBG, iSCREEN, 0,_y,_s)
+#define draw_Horiz_bar(el)    ui_draw_el_bar(el, iBG, iSCREEN, HL_Outside)
 
 #define iget_W(el) el.on->w
 #define iget_H(el) el.on->h
@@ -88,14 +84,11 @@ static struct {
 #define draw_Msg(str, s) \
 	game_board_msg(str, sizeof(str) - 1, s)
 
-static void draw_Track_title(void)
-{
-	el_rect ir = ui_new_el_rect(Track.x, Track.y, Track.w, Track.h);
-	Track.on = ui_make_text(&Fonts[FNT_Pixil], Track.name, sizeof(Track.name));
-	Track.w  = ir.w = ui_get_img_width(Track.on);
-	Track.h  = ir.h = ui_get_img_height(Track.on);
-	ui_draw_source(iBG, ir, iSCREEN, ir.x, ir.y);
-	ui_scale_image(Track.on, iSCREEN, ir.x, ir.y, 0.5);
+static inline void draw_Track_title(bool y) {
+	el_img img = ui_get_el_bitmap(&PlayList);
+	el_rect or = ui_get_el_bounds(&PlayList);
+	/* ~ */ ui_draw_source(iBG, or, iSCREEN, or.x, or.y);
+	if (y)  ui_scale_image(img, iSCREEN, or.x, or.y, .5f);
 }
 
 Uint32 upd_main_time(Uint32 ival, void *_)
@@ -110,13 +103,15 @@ Uint32 upd_main_time(Uint32 ival, void *_)
 
 	sprintf(tdigit, "%02d : %02d", m, s);
 
-	typecr_t p = ui_font_new_typecaret(
-		SCORE_TAB_X + (SCORE_TAB_W / 2) - timer_pos.width / 2,
-		SCORE_TAB_Y + FONT_FANCY_HEIGHT + GAME_SCREEN_P
+	typecr_t p = ui_new_offset(
+		SCORE_TAB_X + SCORE_TAB_W / 2 - timer_pos.offsetX,
+		SCORE_TAB_ROW(2)
 	);
-	el_rect or = ui_new_el_rect( p.offsetX, p.offsetY, SCORE_TAB_W - p.offsetX, timer_pos.height );
-
-	ui_draw_source(iBG, or, iSCREEN, p.offsetX, p.offsetY);
+	el_rect or = ui_new_el_rect(
+		/* - - - - */ p.offsetX, p.offsetY,
+		SCORE_TAB_W - p.offsetX, timer_pos.offsetY
+	);
+	ui_draw_source(iBG, or, iSCREEN, or.x, or.y);
 
 	for (int i = 0; i < 7; i++)
 		p = ui_draw_char(tPIXIL, tdigit[i], f, iSCREEN, p);
@@ -127,26 +122,6 @@ Uint32 upd_main_time(Uint32 ival, void *_)
 
 const char help_text[] = CL_HELP,
           about_text[] = "   -= Color Lines "CL_VERSION_STRING" =-\n"CL_ABOUT"";
-
-static void scroll_info(elem_t *el, int oy, bool save_y)
-{
-	el_img img = ui_get_el_bitmap(el);
-	el_rect ir = ui_get_el_bounds(el),
-	        or = ui_new_el_rect( INFO_X, GAME_BOARD_Y, INFO_W, GAME_BOARD_H );
-
-	ir.y += oy;
-
-	if (save_y) {
-		if (ir.y > GAME_BOARD_H) {
-			ir.y = GAME_BOARD_H;
-		} else if (ir.y < 0) {
-			ir.y = 0;
-		}
-		el->rect.y = ir.y;
-	}
-	ui_draw_source(iBG, or, iSCREEN, or.x, or.y);
-	ui_draw_source(img, ir, iSCREEN, or.x, or.y);
-}
 
 static void toggle_game_pause(bool pause)
 {
@@ -204,7 +179,7 @@ void update_cells(int x1, int y1, int x2, int y2);
 void draw_ball_jump(int n, int x, int y, int num);
 static bool upd_main_score(bool reset);
 static bool check_hiscores(int score);
-static void show_hiscores(void);
+static void upd_main_hiscores();
 static void prep_main_board(bool is_new);
 static int set_volume(int x);
 
@@ -503,7 +478,12 @@ static void music_start(int n, path_t game_dir)
 
 	if (sound_bgm_play(&Sound, n, sys_make_file_path(&game_dir, file))) {
 		sound_set_bgm_onEnd(track_switch);
-		strcpy(Track.name, title);
+		el_img img = PlayList.img;
+		if (PlayList.value.h0 != n || !img) {
+			PlayList.value.h0 = n;
+			if (img) ui_free_image(img);
+			PlayList.img = ui_make_text(&Fonts[FNT_Pixil], title, 255);
+		}
 	}
 }
 
@@ -515,15 +495,14 @@ static void toggle_music()
 	if (has_play) {
 		game_prefs_add(&Prefs, FL_PREF_BGM_PLAY);
 		music_start(Prefs.track_num, GameDir);
-		if (!Track.on)
-			draw_Track_title();
 	} else {
 		game_prefs_del(&Prefs, FL_PREF_BGM_PLAY);
 		sound_bgm_stop(&Sound);
 	}
 	status.store_prefs = true;
 	BgmMute.fill.width = has_play ? -1 : 0;
-	ui_draw_el_bar(&BgmMute, iBG, iSCREEN);
+	draw_Horiz_bar(&BgmMute);
+	draw_Track_title(has_play);
 }
 
 static void toggle_loop() {
@@ -540,31 +519,28 @@ static void toggle_loop() {
 	ui_draw_el_ico(&PlayType, iBG, iSCREEN);
 }
 
-void track_switch(void)
-{
+void track_switch() {
 	int  tnum = Prefs.track_num;
 	bool loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP),
-	     pass = false;
+		 hook = PlayList.value.h1 & 0x1, change = false;
 
-	if (tnum >= 0 && !(loop && !Track.hook)) {
+	if (tnum >= 0 && !(loop && !hook)) {
 		if((tnum + 1) >= MUSIC_TRACKS_N)
 			tnum = 0;
 		else
 			tnum++;
 		Prefs.track_num = tnum;
-		status.store_prefs = pass = true;
+		status.store_prefs = change = true;
 	}
 	music_start(tnum, GameDir);
-	if (pass) {
-		ui_free_image(Track.on);
-		draw_Track_title();
-	}
+	if (change)
+		draw_Track_title(true);
 }
 
 static int set_volume(int x)
 {
-	int vol_i, vol_w = BgmVol.rect.w,
-	    pos_x, mus_w = BgmMute.rect.w;
+	int vol_i, vol_w = BgmVol.rect.width,
+	    pos_x, mus_w = BgmMute.rect.width;
 
 	if (x <= mus_w)
 		pos_x = 0,
@@ -584,7 +560,7 @@ static int set_volume(int x)
 		sound_set_sfx_volume(&Sound, vol_i);
 	}
 	BgmVol.fill.width = pos_x;
-	ui_draw_el_bar(&BgmVol, iBG, iSCREEN);
+	draw_Horiz_bar(&BgmVol);
 	Prefs.bgm_vol = vol_i;
 	Prefs.sfx_vol = vol_i;
 	status.store_prefs = true;
@@ -741,7 +717,7 @@ Uint32 frame_handler(Uint32 ival, void *frame)
 			if (!(st->brd_state = board_next_move(&Board, &Move))) {
 				if (check_hiscores(board_get_score(&Board))) {
 					sound_sfx_play(&Sound, SND_Hiscore, 1);
-					show_hiscores();
+					upd_main_hiscores();
 				} else {
 					sound_sfx_play(&Sound, SND_Gameover, 1);
 				}
@@ -857,8 +833,10 @@ static void loop_main_start()
 				} else if (ui_is_on_el_rect(&BgmMute, x, y)) {
 					toggle_music();
 				}
-				else if ((Track.hook = is_OnElem(Track, x, y))) {
+				else if (ui_is_on_el_rect(&PlayList, x, y)) {
+					PlayList.value.h1 = 0x1;
 					track_switch();
+					PlayList.value.h1 = 0x0;
 				}
 				else if (ui_is_on_el_rect(&PlayType, x, y)) {
 					toggle_loop();
@@ -877,7 +855,7 @@ static void loop_main_start()
 				break;
 			case SDL_MOUSEWHEEL:
 				if (ui_is_on_el_rect(&BgmVol, mx,my)) {
-					set_volume(ui_get_el_value(&BgmVol, ATYPE_INT) + (x ?: y));
+					set_volume(BgmVol.fill.width + (x ?: y));
 				} else
 				if (IS_OVER_GAME_BOARD(mx,my) && paused && x) {
 					scroll_info(&HelpGuide, -FONT_LIMON_HEIGHT * x, true);
@@ -900,52 +878,56 @@ static void loop_main_start()
 	board_wait_finish(&Board, &Move);
 }
 
-int blinks = 0, cur_score = 0x001fffff, cur_mul = 0x001fffff;
-
 static bool upd_main_score(bool reset)
 {
-	typecr_t p = ui_font_new_typecaret(SCORE_TAB_X, SCORE_TAB_Y);
+	typecr_t p = ui_new_offset ( SCORE_TAB_X, SCORE_TAB_Y );
 	el_rect or = ui_new_el_rect( SCORE_TAB_X, SCORE_TAB_Y, SCORE_TAB_W, FONT_FANCY_HEIGHT );
 
-	char txt[24];
-	int new_score = reset ? 0 : board_get_score(&Board), 
-	   l, new_mul = reset ? 0 : board_get_delta(&Board) - 1,
-	   diff_score = reset ? 1 : new_score - cur_score;
+	char ni_bonus = reset ? 0 : Player.blinks, txt[24];
+	int cur_score = reset ? 0 : Player.score;
+	int new_score = board_get_score(&Board),
+	   l, new_mul = board_get_delta(&Board) - 1,
+	   diff_score = new_score - cur_score;
 
 	bool do_sound = false,
-	    has_bonus = reset ? false : blinks != 0,
+	     incr_mul = new_mul > Player.dmul,
 	     do_fills = reset ? true  : false,
 	     do_clear = reset ? true  : false;
 
 	if (reset) {
-		blinks = cur_mul = cur_score = 0;
-	} else if (has_bonus) {
-		do_fills = (blinks / BONUS_BLINKS) & 1,
+		Player.blinks = Player.dmul = Player.score = 0;
+	} else if (ni_bonus) {
+		do_fills = (ni_bonus / BONUS_BLINKS) & 1,
 		do_clear = !do_fills;
-		if (new_mul > cur_mul)
-			blinks = (BONUS_TIMER-do_fills), cur_mul = new_mul, do_sound = true;
+		if (incr_mul)
+			Player.blinks = BONUS_TIMER,
+			Player.dmul = new_mul;
 		else
-			blinks--;
+			Player.blinks = ni_bonus - 1;
 	} else {
-		if (new_mul > cur_mul && new_mul > 1)
-			blinks = BONUS_TIMER,
-			has_bonus = do_sound = do_clear = do_fills = true;
-		else if (diff_score > 0)
-			cur_score += 20 > diff_score ? 1  :
-			            200 > diff_score ? 10 :
-			           2000 > diff_score ? 100: 1000,
-			new_score = cur_score, do_clear = do_fills = true;
-		else if (diff_score != 0)
-			cur_score = new_score, do_clear = do_fills = true;
-		cur_mul = new_mul;
+		if (incr_mul && new_mul > 1)
+			Player.blinks = ni_bonus = BONUS_TIMER,
+			do_sound = do_clear = do_fills = true;
+		else if (diff_score) {
+			Player.score = cur_score = (
+				   0 > diff_score ? new_score    :
+				  20 > diff_score ? cur_score+1  :
+				 200 > diff_score ? cur_score+10 :
+				2000 > diff_score ? cur_score+100: cur_score+1000
+			),
+			do_clear = do_fills = true;
+		}
+		Player.dmul = new_mul;
 	}
 	if (do_clear)
 		ui_draw_source(iBG, or, iSCREEN, or.x, or.y);
 	if (do_sound)
 		sound_sfx_play(&Sound, SND_Bonus, 1);
 	if (do_fills) {
-		l = snprintf(txt, sizeof(txt), (has_bonus ? "Bonus x%d" : "SCORE: %d"), (has_bonus ? new_mul : new_score));
+		l = snprintf(txt, sizeof(txt), (ni_bonus ? "Bonus x%d" : "PLAYER: %d"), (ni_bonus ? new_mul : cur_score));
 		ui_draw_text(tFANCY, txt, l, iSCREEN, p);
+		MyScore.fill.width = to_range(MyScore.rect.width, cur_score, Player.scmax);
+		ui_draw_el_bar(&MyScore, iBG, iSCREEN, HL_Inside);
 	}
 	if (do_clear || do_fills)
 		status.update_needed = true;
@@ -967,28 +949,46 @@ static bool check_hiscores(int score)
 	return stat;
 }
 
-static void show_hiscores(void)
+static void upd_main_hiscores()
 {
 	char buff[64];
-	int w, h = FONT_FANCY_HEIGHT;
+	typecr_t m,p = ui_new_offset(SCORE_TAB_X, SCORE_TAB_ROW(2) + FONT_GET_HLINE(PIXIL));
+	elem_t hitab = {
+		.img  = SVGs[UI_ProgressBar],
+		.pos  = p,
+		.rect = MyScore.rect,
+		.fill = ui_new_rectsz(-1,-1)
+	};
+	int nR1, i, w = MyScore.rect.width,
+		nR2, r,
+		nR3, l;
 
-	unsigned int r, nR[3] = {0,0,0};
-	int i, l, n; 
-	for (i = 0; i < HISCORES_NR; i++) {
+	for(i = nR1 = nR2 = nR3 = 0; i < HISCORES_NR; i++) {
 		r = Records[i].hiscore;
-		for (n = 0; n < 3; n++) {
-			if (nR[n] <= r) {
-				nR[n] = r;
-				break;
-			}
-		}
+		if (nR1 < r) nR1 = r; else
+		if (nR2 < r) nR2 = r; else
+		if (nR3 < r) nR3 = r;
 	}
-	l = snprintf(buff, sizeof(buff), "%i\n\n%i\n\n%i", nR[0], nR[1], nR[2]);
-	typecr_t m = ui_text_rect(tFANCY, buff, l),
-	         p = ui_font_new_typecaret(0, SCORES_Y);
-	el_rect ir = ui_new_el_rect(SCORES_X, SCORES_Y, SCORES_W, m.height);
-	ui_draw_source(iBG, ir, iSCREEN, SCORES_X, SCORES_Y);
+	l = snprintf(buff, sizeof(buff), "LEADER: %i\n\nSILVER: %i\n\nTHIRDY: %i", nR1,nR2,nR3),
+	m = ui_text_rect(tFANCY, buff, l);
+
+	el_rect ir = ui_new_el_rect(p.offsetX, p.offsetY, m.width, m.height);
+	ui_draw_source(iBG, ir, iSCREEN, p.offsetX, p.offsetY);
 	ui_draw_text(tFANCY, buff, l, iSCREEN, p);
+
+	/* global store */
+	Player.scmax = nR1;
+
+	hitab.pos.offsetY = FONT_GET_HLINE(PIXIL) + SCORE_TAB_ROW(3);
+	ui_draw_el_bar(&hitab, iBG, iSCREEN, HR_Inside);
+
+	hitab.pos.offsetY = FONT_GET_HLINE(PIXIL) + SCORE_TAB_ROW(5);
+	hitab.fill.width = to_range(w, nR2, nR1);
+	ui_draw_el_bar(&hitab, iBG, iSCREEN, HR_Inside);
+
+	hitab.pos.offsetY = FONT_GET_HLINE(PIXIL) + SCORE_TAB_ROW(7);
+	hitab.fill.width = to_range(w, nR3, nR1);
+	ui_draw_el_bar(&hitab, iBG, iSCREEN, HR_Inside);
 }
 
 void prep_main_balls()
@@ -1042,6 +1042,7 @@ static void free_main_ui()
 		for(k=0; k < BALL_JUMPS_N; k++) ui_free_image(Balls[i].jumps[k]);
 	};
 	ui_free_image( HelpGuide.img ); BgmVol.img = BgmMute.img = NULL;
+	ui_free_image( PlayList .img );              MyScore.img = NULL;
 	ui_free_image( Restart  .img );
 	ui_free_image( PlayType .img );
 	ui_free_image( HelpBtn  .img );
@@ -1053,61 +1054,58 @@ static void prep_main_ui(void)
 
 	PlayType.img = ui_make_cstr(&Fonts[FNT_Limon], "PL\nLT");
 	HelpBtn .img = ui_make_cstr(&Fonts[FNT_Fancy], "{?}\n{x}");
-	Restart .img = ui_make_cstr(&Fonts[FNT_Fancy], "Restart\n");
+	Restart .img = ui_make_cstr(&Fonts[FNT_Pixil], "Restart\n");
+	MyScore .img = SVGs[UI_ProgressBar];
 	BgmVol  .img = SVGs[UI_Volume];
 	BgmMute .img = SVGs[UI_Music];
 
-	int mus_w = ui_get_img_width (SVGs[UI_Music]),
-	    mus_h = ui_get_img_height(SVGs[UI_Music]) / 2,
-	    vol_w = ui_get_img_width (SVGs[UI_Volume]),
-	    vol_h = ui_get_img_height(SVGs[UI_Volume]) / 2,
-	    ply_w = ui_get_img_width (PlayType.img),
-	    inf_w = ui_get_img_width (HelpBtn.img),
-	    res_w = ui_get_img_width (Restart.img);
+	typecr_t bar_r = ui_get_img_Hcrect(SVGs[UI_ProgressBar]),
+			 vol_r = ui_get_img_Hcrect(SVGs[UI_Volume]),
+			 bgm_r = ui_get_img_Hcrect(SVGs[UI_Music]),
+			 ply_r = ui_get_img_Hcrect(PlayType.img),
+			 hlp_r = ui_get_img_Hcrect(HelpBtn.img),
+			 rst_r = ui_get_img_Hcrect(Restart.img),
 
- 	int res_x = SCORES_X + (SCORES_W - res_w) / 2,
- 		res_y = GAME_SCREEN_H - FONT_FANCY_HEIGHT * 2 - FONT_FANCY_HEIGHT  / 2,
-		mus_y = GAME_SCREEN_H - mus_h,
-		bgm_y = GAME_SCREEN_H - vol_h,
-		ply_y = GAME_SCREEN_H - mus_h - FONT_LIMON_HEIGHT;
+	inf_r = ui_new_rectsz(INFO_W, GAME_BOARD_H),
 
-	ui_set_el_bounds(&BgmMute ,     0, mus_y, mus_w, mus_h);
-	ui_set_el_bounds(&BgmVol  , mus_w, bgm_y, vol_w, vol_h);
-	ui_set_el_bounds(&Restart , res_x, res_y, res_w, FONT_FANCY_HEIGHT);
-	ui_set_el_bounds(&PlayType, mus_w, ply_y, inf_w, FONT_LIMON_HEIGHT);
-	ui_set_el_bounds(&HelpBtn ,     5,     5, inf_w, FONT_FANCY_HEIGHT);
+	trk_p = ui_new_offset(bgm_r.width + vol_r.width + 5, GAME_SCREEN_H - FONT_PIXIL_HEIGHT),
+	trk_r = ui_new_rectsz(GAME_BOARD_X - trk_p.width, FONT_PIXIL_HEIGHT),
 
-	ui_draw_image(Restart.img, iSCREEN, res_x, res_y);
+	hlp_p = ui_new_offset(5, 5),
+	inf_p = ui_new_offset(INFO_X, GAME_BOARD_Y),
+	bgv_p = ui_new_offset(bgm_r.width, GAME_SCREEN_H - vol_r.height),
+	ply_p = ui_new_offset(bgm_r.width, GAME_SCREEN_H - bgm_r.height - FONT_GET_HLINE(LIMON)),
+	bgm_p = ui_new_offset(          0, GAME_SCREEN_H - bgm_r.height),
+	rst_p = ui_new_offset(SCORE_TAB_X+ SCORE_TAB_W/2 - rst_r.width/2, SCORE_TAB_ROW(8) + FONT_GET_HLINE(PIXIL)),
+	bar_p = ui_new_offset(SCORE_TAB_X, SCORE_TAB_ROW(1));
 
-	bool has_play = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY),
-	     has_loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP);
+	short mX = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY) ? -1 : 0,
+	      lY = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP) ? FONT_GET_HLINE(LIMON): 0,
+	      vX = Prefs.bgm_vol * vol_r.width / 100;
+
+	ui_set_el_bounds(&BgmMute , bgm_r, bgm_p, mX, -1);
+	ui_set_el_bounds(&BgmVol  , vol_r, bgv_p, vX, -1);
+	ui_set_el_bounds(&Restart , rst_r, rst_p,  0,  0);
+	ui_set_el_bounds(&PlayType, ply_r, ply_p,  0, lY);
+	ui_set_el_bounds(&HelpBtn , hlp_r, hlp_p,  0,  0);
+	ui_set_el_bounds(&MyScore , bar_r, bar_p,  0, -1);
+	ui_set_el_bounds(&HelpGuide,inf_r, inf_p,  0,  0);
+	ui_set_el_bounds(&PlayList, trk_r, trk_p,  0,  0);
+
+	ui_draw_image(Restart.img, iSCREEN, rst_p.offsetX, rst_p.offsetY);
 
 	timer_pos = ui_cstr_rect(tPIXIL, "00 : 00");
+	timer_pos.offsetX /= 2;
 
-	BgmVol  .fill.width   = Prefs.bgm_vol * vol_w / 100;
-	BgmMute .fill.width   = has_play ? -1 : 0;
-	BgmVol  .fill.height  = BgmMute.fill.height = -1;
-	PlayType.fill.offsetX = HelpBtn.fill.offsetX = 0;
-	PlayType.fill.offsetY = has_loop ? FONT_LIMON_HEIGHT : 0;
-	HelpBtn .fill.offsetY = 0;
+	ui_draw_el_bar(&BgmVol  ,NULL, iSCREEN, HL_Outside);
+	ui_draw_el_bar(&BgmMute ,NULL, iSCREEN, HL_Outside);
+	ui_draw_el_ico(&PlayType,NULL, iSCREEN);
+	ui_draw_el_ico(&HelpBtn ,NULL, iSCREEN);
 
-	ui_draw_el_bar(&BgmVol , NULL, iSCREEN);
-	ui_draw_el_bar(&BgmMute, NULL, iSCREEN);
-	ui_draw_el_ico(&PlayType, iBG, iSCREEN);
-	ui_draw_el_ico(&HelpBtn , iBG, iSCREEN);
-
-	Track.x = mus_w + vol_w + Track.temp / 2;
-	Track.y = SCREEN_H - Track.temp - Track.temp / 2;
-
-	if (Track.name[0] != '\0') {
-		Track.on = ui_make_text(&Fonts[FNT_Pixil], Track.name, sizeof(Track.name));
-		Track.w  = iget_W(Track);
-		Track.h  = iget_H(Track);
-		ui_scale_image(Track.on, iSCREEN, Track.x, Track.y, 0.5);
-	}
+	if (PlayList.img)
+		draw_Track_title(true);
 	if(!HelpGuide.img) {
 		HelpGuide.img  = ui_make_text(&Fonts[FNT_Limon], help_text , sizeof(help_text)),
-		HelpGuide.rect = ui_new_el_rect(0, 0, INFO_W, GAME_BOARD_H);
 
 		ui_draw_image(Balls[ball_joker-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_JOCKER);
 		ui_draw_image(Balls[ball_flush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_FLUSH );
@@ -1132,8 +1130,8 @@ static void prep_main_board(bool is_new)
 	board_init_move(&Move , fetch_game_board());
 	draw_board();
 	upd_main_time(0, NULL);
+	upd_main_hiscores();
 	upd_main_score(is_new);
-	show_hiscores();
 	status.update_needed = status.game_over = false;
 }
 
