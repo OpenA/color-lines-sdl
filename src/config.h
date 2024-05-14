@@ -32,13 +32,16 @@
 	"fnt_limon.svg" }[i]
 
 # define SVG_DIR "vector"
-# define SVG_IMAGES_N 6
+# define SVG_IMAGES_N 9
 # define SVG_IMAGE_GET(i) (const char[][16]){\
 	"bg0.svg",\
 	"cell.svg",\
+	"sbox.svg",\
+	"gear.svg",\
 	"cl_balls.svg",\
 	"progress.svg",\
 	"volume.svg",\
+	"sound.svg",\
 	"music.svg" }[i]
 
 #endif //_CONFIG_H_

@@ -1,8 +1,6 @@
 #include "main.h"
 #include "src/game.c"
 
-#define UI_BITMAPS_L (1+SVG_IMAGES_N)
-
 /* Game Hiscores */
 static record_t Records[HISCORES_NR] = {
 	DEFAULT_RECORD(50), DEFAULT_RECORD(40),
@@ -16,10 +14,10 @@ static struct playlist {
 
 static window_t Window;
 static sound_t Sound;
-static prefs_t Prefs = DEFAULT_PREFS();
+static prefs_t Prefs = { DEFAULT_PREFS };
 static zfont_t Fonts[FONT_NAME_N];
 
-static elem_t SfxVol, SfxMute, PlayType, HelpGuide, MyScore,
+static elem_t SfxVol, SfxMute, PlayMode, OptsBtn, MyScore, HelpGuide,
               BgmVol, BgmMute, PlayList, HelpBtn, Restart;
 static desk_t Board;
 static move_t Move;
@@ -31,36 +29,27 @@ struct __STAT__ {
 	char brd_state;
 };
 
-enum {
+typedef enum _HOOK_ {
 	hT_Free,
-	hT_Sfx_Volume,
-	hT_Bgm_Volume,
+	hT_Track_Loop,
 	hT_Info_Help,
 	hT_Timer_Stop,
-};
-
-static struct {
-	bool running, game_over, update_needed, store_prefs, store_hiscore;
-} status = {
-	.store_hiscore = false,
-	.store_prefs   = false,
-	.update_needed = false,
-	.game_over     = false,
-	.running       = true
-};
+	hT_Sfx_Mute,   hT_Bgm_Mute,
+	hT_Sfx_Volume, hT_Bgm_Volume,
+} hook_e;
 
 static struct _PLAYER_ {
-	unsigned score:21, dmul:7, fl0:4, scmax:21, blinks:7, fl1:4;
+	unsigned score:21, dmul  :7, store_records:1, update_need :1, _0:2;
+	unsigned scmax:21, blinks:7, store_prefs  :1, change_track:1, _1:2;
 } Player = {
-	.score = 0x1FFFFFu,
-	.dmul  = 0x7F,
-	.blinks= 0,
-	.scmax = 0
+	.store_prefs   = false, .score  = 0x1FFFFFu,
+	.store_records = false, .dmul   = 0x7F,
+	.change_track  = false, .blinks = 0,
+	.update_need   = false, .scmax  = 0
 };
 static typecr_t timer_pos;
 
 int   moving_nr = 0;
-el_img bg_saved = NULL;
 
 static struct {
 	el_img alpha[BALL_ALPHA_N];
@@ -71,12 +60,22 @@ static struct {
 #define iBG     SVGs[UI_Bg]
 #define iCELL   SVGs[UI_Cell]
 #define iSCREEN SVGs[UI_Blank]
+#define iBOX    SVGs[UI_SetBox]
+#define iSHOT   SVGs[UI_Snapshot]
 #define tFANCY &Fonts[FNT_Fancy]
 #define tPIXIL &Fonts[FNT_Pixil]
 #define tLIMON &Fonts[FNT_Limon]
 
 #define scroll_info(el,_y,_s) ui_draw_scroll(el, iBG, iSCREEN, 0,_y,_s)
-#define draw_Horiz_bar(el)    ui_draw_el_bar(el, iBG, iSCREEN, HL_Outside)
+
+# define restore_game_screen(_r) ui_draw_source(iSHOT, _r, iSCREEN, _r.x,_r.y)
+static void snap_game_screen() {
+	el_rect r = ui_new_el_rect(0, 0, GAME_SCREEN_W, GAME_SCREEN_H );
+	if(!iSHOT)
+		iSHOT = GFX_CpySurfFormat(iSCREEN, r.w, r.h),
+		/* ~ */ GFX_DisableAlpha(iSHOT);
+	ui_draw_source(iSCREEN, r, iSHOT, 0, 0);
+}
 
 #define iget_W(el) el.on->w
 #define iget_H(el) el.on->h
@@ -116,28 +115,33 @@ Uint32 upd_main_time(Uint32 ival, void *_)
 	for (int i = 0; i < 7; i++)
 		p = ui_draw_char(tPIXIL, tdigit[i], f, iSCREEN, p);
 
-	status.update_needed = true;
+	Player.update_need = true;
 	return ival;
 }
 
 const char help_text[] = CL_HELP,
           about_text[] = "   -= Color Lines "CL_VERSION_STRING" =-\n"CL_ABOUT"";
 
-static void toggle_game_pause(bool pause)
+static void toggle_game_help(bool show)
 {
 	el_rect ir = ui_new_el_rect(
 		INFO_X, GAME_BOARD_Y,
 		INFO_W, GAME_BOARD_H );
-	if (pause) {
-		if(!bg_saved)
-			bg_saved = GFX_CpySurfFormat(iBG, ir.w, ir.h);
-		HelpBtn.fill.offsetY = FONT_LIMON_HEIGHT;
-		ui_draw_source(iSCREEN, ir, bg_saved, 0, 0);
-	} else {
-		HelpBtn.fill.offsetY = ir.x = ir.y = 0;
-		ui_draw_source(bg_saved, ir, iSCREEN, INFO_X, GAME_BOARD_Y);
+	if(!HelpGuide.img && show) {
+		HelpGuide.img  = ui_make_text(&Fonts[FNT_Limon], help_text , sizeof(help_text)),
+		ui_draw_image(Balls[ball_joker-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_JOCKER);
+		ui_draw_image(Balls[ball_flush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_FLUSH );
+		ui_draw_image(Balls[ball_brush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BRUSH );
+		ui_draw_image(Balls[ball_bomb1-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BOMB  );
 	}
-	ui_draw_el_ico(&HelpBtn , iBG, iSCREEN);
+	HelpBtn.fill.offsetY = show ? FONT_LIMON_HEIGHT : 0;
+	ui_draw_el_ico(&HelpBtn, iBG, iSCREEN);
+	if (show) {
+		snap_game_screen();
+		scroll_info(&HelpGuide, 0, false);
+	} else {
+		restore_game_screen(ir);
+	}
 }
 
 static inline void game_board_msg(cstr_t str, const int len, float s) {
@@ -181,7 +185,6 @@ static bool upd_main_score(bool reset);
 static bool check_hiscores(int score);
 static void upd_main_hiscores();
 static void prep_main_board(bool is_new);
-static int set_volume(int x);
 
 static void enable_effect(int x, int y, int effect)
 {
@@ -466,9 +469,9 @@ static void cell_to_screen(int x, int y, int *ox, int *oy)
 	}
 }
 
-static void music_start(int n, path_t game_dir)
+static void play_bgm_track(unsigned char n, path_t game_dir)
 {
-	if ( n > MUSIC_TRACKS_N || !(Prefs.flags & FL_PREF_BGM_PLAY))
+	if (n >= MUSIC_TRACKS_N)
 		return;
 
 	cstr_t file = trackList[n].file,
@@ -487,84 +490,47 @@ static void music_start(int n, path_t game_dir)
 	}
 }
 
-static void toggle_music()
+static inline void draw_play_mode(bool lt)
 {
-	bool has_play = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY);
-	     has_play ^= 1;
-
-	if (has_play) {
-		game_prefs_add(&Prefs, FL_PREF_BGM_PLAY);
-		music_start(Prefs.track_num, GameDir);
-	} else {
-		game_prefs_del(&Prefs, FL_PREF_BGM_PLAY);
-		sound_bgm_stop(&Sound);
-	}
-	status.store_prefs = true;
-	BgmMute.fill.width = has_play ? -1 : 0;
-	draw_Horiz_bar(&BgmMute);
-	draw_Track_title(has_play);
-}
-
-static void toggle_loop() {
-
-	bool loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP);
-	     loop ^= 1;
-
-	if (loop)
-		game_prefs_add(&Prefs, FL_PREF_BGM_LOOP);
-	else
-		game_prefs_del(&Prefs, FL_PREF_BGM_LOOP);
-	status.store_prefs = true;
-	PlayType.fill.offsetY = loop ? FONT_LIMON_HEIGHT : 0;
-	ui_draw_el_ico(&PlayType, iBG, iSCREEN);
+	unsigned char c = '~' + 1 + lt;
+	typecr_t p = PlayMode.pos;
+	p.offsetX += PlayMode.rect.width - FONT_LIMON_WIDTH;
+	el_rect ir = ui_new_el_rect(p.offsetX, p.offsetY, FONT_LIMON_WIDTH, FONT_LIMON_HEIGHT);
+	ui_draw_source(iBOX, ir, iSCREEN, ir.x, ir.y);
+	ui_draw_char(tLIMON, c, ' ', iSCREEN, p);
 }
 
 void track_switch() {
-	int  tnum = Prefs.track_num;
-	bool loop = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP),
-		 hook = PlayList.value.h1 & 0x1, change = false;
+	int  tnum = Prefs.mus_num;
+	bool change = Player.change_track || !Prefs.mus_loop;
 
-	if (tnum >= 0 && !(loop && !hook)) {
+	if (change) {
 		if((tnum + 1) >= MUSIC_TRACKS_N)
 			tnum = 0;
 		else
 			tnum++;
-		Prefs.track_num = tnum;
-		status.store_prefs = change = true;
+		Prefs.mus_num = tnum;
+		Player.store_prefs = true;
 	}
-	music_start(tnum, GameDir);
+	play_bgm_track(tnum, GameDir);
 	if (change)
 		draw_Track_title(true);
 }
 
-static int set_volume(int x)
+int change_main_volume(elem_t *el, int x)
 {
-	int vol_i, vol_w = BgmVol.rect.width,
-	    pos_x, mus_w = BgmMute.rect.width;
+	el_rect vol = ui_get_el_bounds(el);
+	int fill_w  = x - vol.x, val_i;
 
-	if (x <= mus_w)
-		pos_x = 0,
-		vol_i = 0;
-	else if (x >= (mus_w + vol_w))
-		pos_x = vol_w,
-		vol_i = 100;
+	if (x >= (vol.x + vol.w))
+		val_i = 100, fill_w = vol.w;
+	else if (fill_w <= 1)
+		val_i = 1, fill_w = 0;
 	else
-		pos_x = x - mus_w,
-		vol_i = (pos_x * 100) / vol_w;
-# ifdef DEBUG
-	if (Prefs.bgm_vol != vol_i)
-		printf("volume change: %d (%f)\n", vol_i, FP_VOL_STEP * vol_i);
-# endif
-	if(!sound_has_not_ready(&Sound)) {
-		sound_set_bgm_volume(&Sound, vol_i);
-		sound_set_sfx_volume(&Sound, vol_i);
-	}
-	BgmVol.fill.width = pos_x;
-	draw_Horiz_bar(&BgmVol);
-	Prefs.bgm_vol = vol_i;
-	Prefs.sfx_vol = vol_i;
-	status.store_prefs = true;
-	return pos_x + mus_w;
+		val_i = (fill_w * 100) / vol.w;
+	el->fill.width = fill_w;
+	ui_draw_el_bar(el, iBOX, iSCREEN, HL_Outside);
+	return val_i;
 }
 
 void draw_cell(int x, int y)
@@ -577,14 +543,14 @@ void draw_cell(int x, int y)
 
 void update_cell(int x, int y)
 {
-	status.update_needed = true;
+	Player.update_need = true;
 	int nx, ny;
 	cell_to_screen(x, y, &nx, &ny);
 }
 
 void update_cells(int x1, int y1, int x2, int y2)
 {
-	status.update_needed = true;
+	Player.update_need = true;
 	int nx1, ny1;
 	int nx2, ny2;
 	int tmp;
@@ -726,10 +692,93 @@ Uint32 frame_handler(Uint32 ival, void *frame)
 				st->game_over = true;
 			}
 		}
-		if (code || status.update_needed)
-			ui_push_event(code), status.update_needed = false;
+		if (code || Player.update_need)
+			ui_push_event(code), Player.update_need = false;
 	}
 	return ival;
+}
+
+static void toggle_main_prefs(bool show, bool snap)
+{
+	el_rect sr = ui_new_el_rect(0, 0, GAME_SCREEN_W, GAME_SCREEN_H );
+	if (show) {
+		if (snap)
+			snap_game_screen();
+		ui_draw_source(iBOX, sr, iSCREEN, 0, 0);
+		ui_draw_el_bar(&BgmVol , NULL, iSCREEN, HL_Outside);
+		ui_draw_el_bar(&SfxVol , NULL, iSCREEN, HL_Outside);
+		ui_draw_el_bar(&BgmMute, NULL, iSCREEN, HL_Outside);
+		ui_draw_el_bar(&SfxMute, NULL, iSCREEN, HL_Outside);
+		draw_play_mode(Prefs.mus_loop);
+	} else {
+		restore_game_screen(sr);
+	}
+}
+
+static hook_e nook_main_prefs(int x, int y) {
+	return (
+		ui_is_on_el_rect(&PlayMode, x, y) ? hT_Track_Loop :
+		ui_is_on_el_rect(&SfxVol  , x, y) ? hT_Sfx_Volume :
+		ui_is_on_el_rect(&SfxMute , x, y) ? hT_Sfx_Mute :
+		ui_is_on_el_rect(&BgmVol  , x, y) ? hT_Bgm_Volume :
+		ui_is_on_el_rect(&BgmMute , x, y) ? hT_Bgm_Mute : hT_Free
+	);
+}
+
+static void handle_main_prefs(hook_e ht, int x, int y)
+{
+	switch (ht) {
+	case hT_Track_Loop:
+		draw_play_mode(Prefs.mus_loop ^= 1);
+		break;
+	case hT_Sfx_Volume:
+		/**/x = change_main_volume(&SfxVol, x);
+		if (x != Prefs.sfx_vol) {
+# ifdef DEBUG
+			printf("SFX volume change: %i w%d\n", INT_VOL_STEP(x), SfxVol.fill.width);
+# endif
+			if (sound_has_mix_ready(&Sound))
+				sound_set_sfx_volume(&Sound, x);
+			Prefs.sfx_vol = x;
+		}
+		break;
+	case hT_Sfx_Mute:
+		if (Prefs.sfx_mute ^= 1) {
+			conf_param_add(&Sound, FL_SFX_MUTE);
+			SfxMute.fill.width = 0;
+		} else {
+			conf_param_del(&Sound, FL_SFX_MUTE);
+			SfxMute.fill.width = -1;
+		}
+		ui_draw_el_bar(&SfxMute, iBOX, iSCREEN, HL_Outside);
+		break;
+	case hT_Bgm_Volume:
+		/**/x = change_main_volume(&BgmVol, x);
+		if (x != Prefs.bgm_vol) {
+# ifdef DEBUG
+			printf("BGM volume change: %i w%d\n", INT_VOL_STEP(x), BgmVol.fill.width);
+# endif
+			if (sound_has_mix_ready(&Sound))
+				sound_set_bgm_volume(&Sound, x);
+			Prefs.bgm_vol = x;
+		}
+		break;
+	case hT_Bgm_Mute:
+		if (Prefs.bgm_mute ^= 1) {
+			if (sound_has_mix_ready(&Sound))
+				sound_bgm_stop(&Sound);
+			BgmMute.fill.width = 0;
+		} else {
+			play_bgm_track(Prefs.mus_num, GameDir);
+			BgmMute.fill.width = -1;
+		}
+		ui_draw_el_bar(&BgmMute, iBOX, iSCREEN, HL_Outside);
+		break;
+	case hT_Free: case hT_Info_Help: case hT_Timer_Stop:
+	default:
+		return;
+	}
+	Player.store_prefs = true;
 }
 
 static void loop_main_start()
@@ -750,13 +799,13 @@ static void loop_main_start()
 	    y, sy = 0, my = 0;
 
 	bool refresh = false, paused = false,
-	     running = true;
+	     running = true, options = false;
 
 /* <==== Game Timer ====> */
-# define start_Game_Timer() timer_id = SDL_AddTimer(1e3, upd_main_time, NULL)
-# define  stop_Game_Timer() /*------*/ SDL_RemoveTimer( timer_id )
-# define  lock_Main_Frame() timer_id = 0, frame.locked = true
-# define ulock_Main_Frame() frame.game_over = frame.locked = false
+# define start_Game_Timer() frame.paused = false, timer_id = SDL_AddTimer(1e3, upd_main_time, NULL)
+# define  stop_Game_Timer() frame.paused = true , /* ~~~~ */ SDL_RemoveTimer( timer_id )
+# define  lock_Main_Frame() frame.locked = true , timer_id = 0
+# define ulock_Main_Frame() frame.locked = frame.game_over = false
 
 	SDL_AddTimer(20, frame_handler, &frame);
 	start_Game_Timer();
@@ -783,8 +832,8 @@ static void loop_main_start()
 				break;
 			case SDL_MOUSEMOTION:
 				mx = x, my = y;
-				if (hook_ht == hT_Bgm_Volume)
-					set_volume(x);
+				if (hook_ht >= hT_Sfx_Volume)
+					handle_main_prefs(hook_ht,x,y);
 				else if (hook_ht == hT_Info_Help)
 					scroll_info(&HelpGuide, sy - y, false);
 				else
@@ -799,6 +848,23 @@ static void loop_main_start()
 				break;
 			case SDL_MOUSEBUTTONDOWN: // Button pressed
 				sx = x, sy = y;
+				if (ui_is_on_el_rect(&OptsBtn, x, y)) {
+					if (options ^= 1) {
+						if (!paused)
+							stop_Game_Timer();
+						toggle_main_prefs(true, !paused);
+					} else {
+						toggle_main_prefs(false, false);
+						if (!paused)
+						     start_Game_Timer();
+						else scroll_info(&HelpGuide, 0, false);
+					}
+				} else if (options) {
+					if ((hook_ht = nook_main_prefs(x,y)))
+						handle_main_prefs(hook_ht, x,y);
+					else
+						refresh = false;
+				} else
 				if (IS_OVER_GAME_BOARD(x,y)) {
 					if (paused) {
 						hook_ht = hT_Info_Help;
@@ -813,9 +879,14 @@ static void loop_main_start()
 						ulock_Main_Frame();
 					} else
 						refresh = false;
-				} else if (ui_is_on_el_rect(&BgmVol, x, y)) {
-					hook_ht = hT_Bgm_Volume;
-					set_volume(x);
+				} else if (ui_is_on_el_rect(&HelpBtn, x, y)) {
+					if (paused ^= 1) {
+						stop_Game_Timer();
+						toggle_game_help(true);
+					} else {
+						toggle_game_help(false);
+						start_Game_Timer();
+					}
 				} else if (ui_is_on_el_rect(&Restart, x, y)) {
 					if (timer_id) {
 						stop_Game_Timer();
@@ -830,32 +901,16 @@ static void loop_main_start()
 						ulock_Main_Frame();
 					} else
 						refresh = false;
-				} else if (ui_is_on_el_rect(&BgmMute, x, y)) {
-					toggle_music();
-				}
-				else if (ui_is_on_el_rect(&PlayList, x, y)) {
-					PlayList.value.h1 = 0x1;
+				} else if (ui_is_on_el_rect(&PlayList, x, y)) {
+					Player.change_track = true;
 					track_switch();
-					PlayList.value.h1 = 0x0;
-				}
-				else if (ui_is_on_el_rect(&PlayType, x, y)) {
-					toggle_loop();
-				}
-				else if (ui_is_on_el_rect(&HelpBtn, x, y)) {
-					if (paused ^= 1) {
-						stop_Game_Timer();
-						toggle_game_pause(frame.paused = true);
-						scroll_info(&HelpGuide, 0, false);
-					} else {
-						toggle_game_pause(frame.paused = false);
-						start_Game_Timer();
-					}
+					Player.change_track = false;
 				} else
 					refresh = false;
 				break;
 			case SDL_MOUSEWHEEL:
 				if (ui_is_on_el_rect(&BgmVol, mx,my)) {
-					set_volume(BgmVol.fill.width + (x ?: y));
+					//set_volume(BgmVol.fill.width + (x ?: y));
 				} else
 				if (IS_OVER_GAME_BOARD(mx,my) && paused && x) {
 					scroll_info(&HelpGuide, -FONT_LIMON_HEIGHT * x, true);
@@ -930,7 +985,7 @@ static bool upd_main_score(bool reset)
 		ui_draw_el_bar(&MyScore, iBG, iSCREEN, HL_Inside);
 	}
 	if (do_clear || do_fills)
-		status.update_needed = true;
+		Player.update_need = true;
 }
 
 static bool check_hiscores(int score)
@@ -942,7 +997,7 @@ static bool check_hiscores(int score)
 				Records[k].hiscore = Records[k - 1].hiscore;
 			}
 			Records[i].hiscore = score;
-			status.store_hiscore = true;
+			Player.store_records = true;
 			break;
 		}
 	}
@@ -1044,49 +1099,63 @@ static void free_main_ui()
 	ui_free_image( HelpGuide.img ); BgmVol.img = BgmMute.img = NULL;
 	ui_free_image( PlayList .img );              MyScore.img = NULL;
 	ui_free_image( Restart  .img );
-	ui_free_image( PlayType .img );
+	ui_free_image( PlayMode  .img );
 	ui_free_image( HelpBtn  .img );
 }
 
 static void prep_main_ui(void)
 {
 	srand(time(NULL));
+# define SOUND_TXT "SFX\n\nBGM\n\n"
+# define PLMOD_TXT "PLAY MODE: "
 
-	PlayType.img = ui_make_cstr(&Fonts[FNT_Limon], "PL\nLT");
 	HelpBtn .img = ui_make_cstr(&Fonts[FNT_Fancy], "{?}\n{x}");
 	Restart .img = ui_make_cstr(&Fonts[FNT_Pixil], "Restart\n");
 	MyScore .img = SVGs[UI_ProgressBar];
 	BgmVol  .img = SVGs[UI_Volume];
 	BgmMute .img = SVGs[UI_Music];
+	SfxVol  .img = SVGs[UI_Volume];
+	SfxMute .img = SVGs[UI_Sound];
+	OptsBtn .img = SVGs[UI_Gear];
 
 	typecr_t bar_r = ui_get_img_Hcrect(SVGs[UI_ProgressBar]),
 			 vol_r = ui_get_img_Hcrect(SVGs[UI_Volume]),
 			 bgm_r = ui_get_img_Hcrect(SVGs[UI_Music]),
-			 ply_r = ui_get_img_Hcrect(PlayType.img),
+			 sfx_r = ui_get_img_Hcrect(SVGs[UI_Sound]),
+			 opt_r = ui_get_img_Hcrect(SVGs[UI_Gear]),
 			 hlp_r = ui_get_img_Hcrect(HelpBtn.img),
 			 rst_r = ui_get_img_Hcrect(Restart.img),
 
+	ply_r = ui_cstr_rect(tLIMON, PLMOD_TXT),
+	zzz_r = ui_cstr_rect(tLIMON, SOUND_TXT),
 	inf_r = ui_new_rectsz(INFO_W, GAME_BOARD_H),
 
-	trk_p = ui_new_offset(bgm_r.width + vol_r.width + 5, GAME_SCREEN_H - FONT_PIXIL_HEIGHT),
+	trk_p = ui_new_offset(opt_r.width + 15, GAME_SCREEN_H - FONT_PIXIL_HEIGHT),
 	trk_r = ui_new_rectsz(GAME_BOARD_X - trk_p.width, FONT_PIXIL_HEIGHT),
 
 	hlp_p = ui_new_offset(5, 5),
 	inf_p = ui_new_offset(INFO_X, GAME_BOARD_Y),
-	bgv_p = ui_new_offset(bgm_r.width, GAME_SCREEN_H - vol_r.height),
-	ply_p = ui_new_offset(bgm_r.width, GAME_SCREEN_H - bgm_r.height - FONT_GET_HLINE(LIMON)),
-	bgm_p = ui_new_offset(          0, GAME_SCREEN_H - bgm_r.height),
-	rst_p = ui_new_offset(SCORE_TAB_X+ SCORE_TAB_W/2 - rst_r.width/2, SCORE_TAB_ROW(8) + FONT_GET_HLINE(PIXIL)),
+	opt_p = ui_new_offset(5  /*---*/ , GAME_SCREEN_H - opt_r.height - 5),
+	sfv_p = ui_new_offset(zzz_r.width+ GAME_SCREEN_P, GAME_SCREEN_P),
+	bgv_p = ui_new_offset(zzz_r.width+ GAME_SCREEN_P, GAME_SCREEN_P + FONT_GET_HLINE(LIMON)*2),
+	ply_p = ui_new_offset(-5 /*---*/ + GAME_SCREEN_P, GAME_SCREEN_P + FONT_GET_HLINE(LIMON)*4),
+	sfx_p = ui_new_offset(vol_r.width+ sfv_p.offsetX, sfv_p.offsetY),
+	bgm_p = ui_new_offset(vol_r.width+ bgv_p.offsetX, bgv_p.offsetY),
+	rst_p = ui_new_offset(SCORE_TAB_X+ SCORE_TAB_W/2 - rst_r.width/2, FONT_GET_HLINE(PIXIL) + SCORE_TAB_ROW(8)),
 	bar_p = ui_new_offset(SCORE_TAB_X, SCORE_TAB_ROW(1));
 
-	short mX = game_prefs_has(&Prefs, FL_PREF_BGM_PLAY) ? -1 : 0,
-	      lY = game_prefs_has(&Prefs, FL_PREF_BGM_LOOP) ? FONT_GET_HLINE(LIMON): 0,
-	      vX = Prefs.bgm_vol * vol_r.width / 100;
+	short sX = Prefs.sfx_mute - 1, fX = Prefs.sfx_vol * vol_r.width / 100,
+	      bX = Prefs.bgm_mute - 1, vX = Prefs.bgm_vol * vol_r.width / 100;
 
-	ui_set_el_bounds(&BgmMute , bgm_r, bgm_p, mX, -1);
+	ply_r.width += FONT_LIMON_WIDTH;
+
+	ui_set_el_bounds(&OptsBtn , opt_r, opt_p,  0,  0);
+	ui_set_el_bounds(&SfxMute , sfx_r, sfx_p, sX, -1);
+	ui_set_el_bounds(&SfxVol  , vol_r, sfv_p, fX, -1);
+	ui_set_el_bounds(&BgmMute , bgm_r, bgm_p, bX, -1);
 	ui_set_el_bounds(&BgmVol  , vol_r, bgv_p, vX, -1);
 	ui_set_el_bounds(&Restart , rst_r, rst_p,  0,  0);
-	ui_set_el_bounds(&PlayType, ply_r, ply_p,  0, lY);
+	ui_set_el_bounds(&PlayMode, ply_r, ply_p,  0,  0);
 	ui_set_el_bounds(&HelpBtn , hlp_r, hlp_p,  0,  0);
 	ui_set_el_bounds(&MyScore , bar_r, bar_p,  0, -1);
 	ui_set_el_bounds(&HelpGuide,inf_r, inf_p,  0,  0);
@@ -1097,21 +1166,15 @@ static void prep_main_ui(void)
 	timer_pos = ui_cstr_rect(tPIXIL, "00 : 00");
 	timer_pos.offsetX /= 2;
 
-	ui_draw_el_bar(&BgmVol  ,NULL, iSCREEN, HL_Outside);
-	ui_draw_el_bar(&BgmMute ,NULL, iSCREEN, HL_Outside);
-	ui_draw_el_ico(&PlayType,NULL, iSCREEN);
+	ui_draw_cstr(tLIMON, SOUND_TXT PLMOD_TXT, iBOX, ui_new_offset(GAME_SCREEN_P-5, GAME_SCREEN_P));
+	ui_draw_el_ico(&OptsBtn, NULL, iSCREEN), OptsBtn.fill.offsetY = opt_r.width;
+	ui_draw_el_ico(&OptsBtn, NULL, iBOX);
 	ui_draw_el_ico(&HelpBtn ,NULL, iSCREEN);
 
 	if (PlayList.img)
 		draw_Track_title(true);
-	if(!HelpGuide.img) {
-		HelpGuide.img  = ui_make_text(&Fonts[FNT_Limon], help_text , sizeof(help_text)),
-
-		ui_draw_image(Balls[ball_joker-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_JOCKER);
-		ui_draw_image(Balls[ball_flush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_FLUSH );
-		ui_draw_image(Balls[ball_brush-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BRUSH );
-		ui_draw_image(Balls[ball_bomb1-1].alpha[ALPHA_STEPS-1], HelpGuide.img, 0, INFO_Y_BOMB  );
-	}
+# undef SOUND_TXT
+# undef PLMOD_TXT
 }
 
 static void prep_main_board(bool is_new)
@@ -1132,7 +1195,6 @@ static void prep_main_board(bool is_new)
 	upd_main_time(0, NULL);
 	upd_main_hiscores();
 	upd_main_score(is_new);
-	status.update_needed = status.game_over = false;
 }
 
 static SUCESS parse_main_args(const int alen, cstr_t args[])
@@ -1204,8 +1266,8 @@ int main(int argc, cstr_t argv[]) {
 	draw_Msg("Loading...",0);
 	ui_win_update(&Window, iSCREEN);
 
-	if (game_init_sound(&Sound, &Prefs, GameDir))
-		music_start(Prefs.track_num, GameDir);
+	if (game_init_sound(&Sound, &Prefs, GameDir) && !Prefs.bgm_mute)
+		play_bgm_track(Prefs.mus_num, GameDir);
 
 	prep_main_balls();
 	prep_main_ui();
@@ -1215,9 +1277,9 @@ int main(int argc, cstr_t argv[]) {
 # ifndef DEBUG
 	// save game progress
 	    game_save_session(&Board , &cfg_dir);
-	if (status.store_hiscore)
+	if (Player.store_records)
 	    game_save_records(Records, &cfg_dir);
-	if (status.store_prefs)
+	if (Player.store_prefs)
 	    game_save_settings(&Prefs, &cfg_dir);
 # endif
 	free_main_ui();

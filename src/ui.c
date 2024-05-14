@@ -24,7 +24,7 @@ typecr_t ui_text_rect(zfont_t *fnt, cstr_t txt, const int len)
 	return ui_new_rectsz(w,h);
 }
 
-inline typecr_t ui_draw_char(zfont_t *fnt, const char c, const char f, el_img out, typecr_t p)
+inline typecr_t ui_draw_char(zfont_t *fnt, unsigned char c, unsigned char f, el_img out, typecr_t p)
 {
 	measure_t g = ui_font_get_measures(fnt);
 

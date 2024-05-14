@@ -70,9 +70,12 @@ void game_save_records(record_t list[], path_t *cfg_dir)
 SUCESS game_init_sound(sound_t *snd, prefs_t *pref, path_t game_dir)
 {
 	// Initialize Sound
-	if (!sound_init_open(snd)) {
+	if (!sound_init_open(snd))
 		return SUCESS_fail;
-	}
+
+	if (pref->bgm_mute) conf_param_add(snd, FL_BGM_MUTE);
+	if (pref->sfx_mute) conf_param_add(snd, FL_SFX_MUTE);
+
 	sound_set_bgm_volume(snd, pref->bgm_vol);
 	sound_set_sfx_volume(snd, pref->sfx_vol);
 

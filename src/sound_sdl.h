@@ -2,13 +2,16 @@
 # include <SDL2/SDL_mixer.h>
 # include "config.h"
 # define _SOUND_H_
-
+/* user flags */
 # define FL_SFX_MUTE 0x01
 # define FL_BGM_MUTE 0x02
-# define FL_BGM_PLYS 0x04
-# define FL_NOT_OPEN 0x80
+/* internal flags */
+# define FL_SFX_VOID 0x10
+# define FL_BGM_VOID 0x20
+# define FL_BGM_PLYS 0x40
+# define FL_MIX_OPEN 0x80
 
-# define FP_VOL_STEP ((float)MIX_MAX_VOLUME * 0.01)
+# define INT_VOL_STEP(v) (MIX_MAX_VOLUME * v / 100)
 
 typedef struct {
 	Mix_Music *bgm;
@@ -17,33 +20,33 @@ typedef struct {
 } sound_t;
 
 # define sound_set_bgm_onEnd(_fn) Mix_HookMusicFinished(_fn)
-# define sound_has_not_ready(snd) ((snd)->flags & FL_NOT_OPEN)
+# define sound_has_mix_ready(snd) ((snd)->flags & FL_MIX_OPEN)
 # define sound_has_bgm_plyed(snd) ((snd)->flags & FL_BGM_PLYS)
-# define sound_has_bgm_muted(snd) ((snd)->flags & FL_BGM_MUTE)
-# define sound_has_sfx_muted(snd) ((snd)->flags & FL_SFX_MUTE)
+# define sound_has_bgm_muted(snd) ((snd)->flags & ( FL_BGM_MUTE | FL_BGM_VOID ))
+# define sound_has_sfx_muted(snd) ((snd)->flags & ( FL_SFX_MUTE | FL_SFX_VOID ))
 
 /* ========== Sound BGM ============= */
 static inline void sound_bgm_stop(sound_t *snd) {
 	if (snd->bgm != NULL) {
-		sound_set_bgm_onEnd(NULL),
+		Mix_HookMusicFinished(NULL),
 		Mix_HaltMusic();
 		Mix_FreeMusic(snd->bgm),
 		/* - - - - */ snd->bgm = NULL;
-		snd->flags &= ~FL_BGM_PLYS;
+		conf_param_del(snd, FL_BGM_PLYS);
 	}
 }
 static inline bool sound_bgm_pause(sound_t *snd) {
 	bool has_plyed = sound_has_bgm_plyed(snd);
 	if ( snd->bgm != NULL ) {
 		if (has_plyed)
-			Mix_PauseMusic(),  snd->flags &= ~FL_BGM_PLYS;
+			Mix_PauseMusic(),  conf_param_del(snd, FL_BGM_PLYS);
 		else
-			Mix_ResumeMusic(), snd->flags |=  FL_BGM_PLYS;
+			Mix_ResumeMusic(), conf_param_add(snd, FL_BGM_PLYS);
 		return has_plyed;
 	}
 	return false;
 }
-static inline bool sound_bgm_play(sound_t *snd, int pid, const char *track)
+static inline bool sound_bgm_play(sound_t *snd, unsigned char pid, const char *track)
 {
 	sound_bgm_stop(snd);
 // -1 does not set the volume, but does return the current volume setting.
@@ -57,25 +60,25 @@ static inline bool sound_bgm_play(sound_t *snd, int pid, const char *track)
 	}
 	return false;
 }
-static inline void sound_set_bgm_volume(sound_t *snd, int vol) {
-	if (Mix_VolumeMusic(FP_VOL_STEP * vol)) {
-		snd->flags &= ~FL_BGM_MUTE;
+static inline void sound_set_bgm_volume(sound_t *snd, unsigned char vol) {
+	if (Mix_VolumeMusic(INT_VOL_STEP(vol))) {
+		conf_param_del(snd, FL_BGM_VOID);
 	} else {
-		snd->flags |=  FL_BGM_MUTE;
+		conf_param_add(snd, FL_BGM_VOID);
 	}
 }
 
 /* ========== Sound SFX ============= */
-static inline void sound_sfx_play(sound_t *snd, int n, int loops) {
+static inline void sound_sfx_play(sound_t *snd, unsigned char n, int loops) {
 	if (!sound_has_sfx_muted(snd) && n < SOUND_EFFECTS_N) {
 		Mix_PlayChannel(-1, snd->sfx[n], loops - 1);
 	}
 }
-static inline void sound_set_sfx_volume(sound_t *snd, int vol) {
-	if (Mix_Volume(-1, FP_VOL_STEP * vol)) {
-		snd->flags &= ~FL_SFX_MUTE;
+static inline void sound_set_sfx_volume(sound_t *snd, unsigned char vol) {
+	if (Mix_Volume(-1, INT_VOL_STEP(vol))) {
+		conf_param_del(snd, FL_SFX_VOID);
 	} else {
-		snd->flags |=  FL_SFX_MUTE;
+		conf_param_add(snd, FL_SFX_VOID);
 	}
 }
 
@@ -85,7 +88,7 @@ static inline bool sound_init_open(sound_t *snd) {
 
 	for (int i = 0; i < SOUND_EFFECTS_N; i++)
 		snd->sfx[i] = NULL;
-	snd->flags = no_err ? 0 : FL_NOT_OPEN | FL_SFX_MUTE | FL_BGM_MUTE;
+	snd->flags = no_err ? FL_MIX_OPEN : FL_SFX_VOID | FL_BGM_VOID;
 	snd->pid   = 0;
 	snd->bgm   = NULL;
 	return no_err;

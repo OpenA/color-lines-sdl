@@ -25,35 +25,32 @@ enum FNT_T {
 enum IMG_T {
 	UI_Bg = 0,
 	UI_Cell,
+	UI_SetBox,
+	UI_Gear,
 	UI_BallsCollect,
 	UI_ProgressBar,
 	UI_Volume,
+	UI_Sound,
 	UI_Music,
+/* system */
+	UI_Snapshot,
 	UI_Blank,
 };
 
 # include "ui.c"
-# define INFL_SHOWED 0x2
-# define INFL_MOVE   0x1
+# define UI_BITMAPS_L (UI_Blank+1)
 
 /* Player Preferences */
-# define FL_PREF_BGM_LOOP 0x01
-# define FL_PREF_BGM_PLAY 0x02
-# define FL_PREF_SFX_MUTE 0x04
-
 typedef struct {
-	unsigned char sfx_vol, bgm_vol, track_num, flags;
-	int _reservs;
+	unsigned char sfx_vol:7, sfx_mute:1, bgm_vol:7, bgm_mute:1;
+	unsigned char mus_num:7, mus_loop:1, flags;
+	unsigned int _r32;
 } prefs_t;
 
-# define DEFAULT_PREFS() {\
-	.sfx_vol = 100, .track_num = 0,\
-	.bgm_vol = 100, .flags = 0, ._reservs = 0\
-}
-
-# define game_prefs_add(pref,FL) ((pref)->flags |=  FL)
-# define game_prefs_has(pref,FL) ((pref)->flags &   FL)
-# define game_prefs_del(pref,FL) ((pref)->flags &= ~FL)
+# define DEFAULT_PREFS \
+	.sfx_vol = 100, .sfx_mute = false, .flags = 0,\
+	.bgm_vol = 100, .bgm_mute = false, ._r32 = 0,\
+	.mus_num = 0x0, .mus_loop = false, 
 
 /* Player Records */
 typedef struct {

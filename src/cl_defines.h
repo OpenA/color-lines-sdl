@@ -6,6 +6,10 @@
 # include <stdbool.h>
 # define to_range(w,i,imx) (w * (i * 100 / imx) / 100)
 
+# define conf_param_add(cfg, FL) ((cfg)->flags |=  FL)
+# define conf_param_has(cfg, FL) ((cfg)->flags &   FL)
+# define conf_param_del(cfg, FL) ((cfg)->flags &= ~FL)
+
 // Fonts Defines
 # define FONT_LETTER_R 3
 # define FONT_LETTER_N 32

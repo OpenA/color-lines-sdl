@@ -90,8 +90,9 @@ typedef struct {
 
 # define ui_make_cstr(fnt, txt) ui_make_text(fnt, txt, sizeof(txt) - 1)
 # define ui_cstr_rect(fnt, txt) ui_text_rect(fnt, txt, sizeof(txt) - 1)
+# define ui_draw_cstr(fnt, txt, out,p) ui_draw_text(fnt, txt, sizeof(txt) - 1, out, p);
 
-extern typecr_t ui_draw_char(zfont_t *fnt, const char c, const char f, el_img out, typecr_t p);
+extern typecr_t ui_draw_char(zfont_t *fnt, unsigned char c, unsigned char f, el_img out, typecr_t p);
 extern     void ui_init_font(zfont_t *fnt, el_img bitmap, measure_t g);
 extern typecr_t ui_text_rect(zfont_t *fnt, cstr_t txt, const int len);
 extern     void ui_draw_text(zfont_t *fnt, cstr_t txt, const int len, el_img out, typecr_t p);
