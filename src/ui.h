@@ -47,9 +47,7 @@ typedef struct elem {
 # define ui_get_img_Hcrect(img) (typecr_t){ .width = (img)->w, .height = ((img)->h/2) }
 # define ui_get_img_Vcrect(img) (typecr_t){ .height = (img)->h, .width = ((img)->w/2) }
 
-# define ui_new_el_rect(_x,_y,_w,_h) (struct el_rect){\
-	.x = _x, .y = _y, .w = _w, .h = _h\
-}
+# define ui_new_el_rect(_x,_y,_w,_h) (el_rect){ .x =_x, .y =_y, .w =_w, .h =_h }
 # define ui_set_el_bounds(el,_r,_p,fw,fh) \
 	(el)->rect =_r, (el)->pos =_p, (el)->fill.width =fw, (el)->fill.height =fh\
 
@@ -79,7 +77,7 @@ typedef union {
 
 typedef struct {
 	el_img bitmap;
-	measure_t dims, lmap[FONT_LETTER_N * FONT_LETTER_R];
+	measure_t dims, lmap[FONT_LETTER_L];
 } zfont_t;
 
 # define ui_font_set_letter(fnt,n,_o,_w)  (fnt)->lmap[n].offset =_o, (fnt)->lmap[n].width =_w

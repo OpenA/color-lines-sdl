@@ -11,12 +11,11 @@ typecr_t ui_text_rect(zfont_t *fnt, cstr_t txt, const int len)
 	int i,p,w,h = FONT_G_HEIGHT;
 
 	for (i = p = w = 0; i < len && txt[i] != '\0'; i++) {
-		if (txt[i] == '\n')
+		/*~*/if (txt[i] == '\n')
 			h += FONT_G_PADDING + FONT_G_HEIGHT, p = 0;
-		else
-		if (txt[i] == ' ')
+		else if (txt[i] == ' ')
 			p += FONT_G_PADDING + FONT_G_SPACE;
-		else
+		else if (txt[i] > 0x20)
 			p += FONT_G_PADDING + ui_font_get_letter_width(fnt, txt[i] - 0x21);
 		if (p > w)
 			w = p;
@@ -28,22 +27,18 @@ inline typecr_t ui_draw_char(zfont_t *fnt, unsigned char c, unsigned char f, el_
 {
 	measure_t g = ui_font_get_measures(fnt);
 
-	if (c == '\n') {
+	/*~~*/ if (c == '\n') {
 		p.offsetY += FONT_G_PADDING + FONT_G_HEIGHT;
 		p.offsetX  = 0;
-	} else
-	if (c == ' ') {
+	} else if (c == ' ') {
 		p.offsetX += FONT_G_PADDING + FONT_G_SPACE;
-	} else {
+	} else if (c > 0x20) {
 		int i = c - 0x21,
-		    n = i / FONT_LETTER_N,
-		    l = i - FONT_LETTER_N * n,
-		    x = l * FONT_G_WIDTH,
-		    y = n * FONT_G_HEIGHT,
-		    s = ui_font_get_letter_offset(fnt, i),
+		    y = i / FONT_LETTER_N * FONT_G_HEIGHT,
+		    x = ui_font_get_letter_offset(fnt, i),
 		    w = ui_font_get_letter_width(fnt, i);
 
-		el_rect ir = ui_new_el_rect(s + x, y, w, FONT_G_HEIGHT);
+		el_rect ir = ui_new_el_rect(x, y, w, FONT_G_HEIGHT);
 		if (c != f)
 			ui_draw_source(fnt->bitmap, ir, out, p.offsetX, p.offsetY);
 		p.offsetX += FONT_G_PADDING + w;
@@ -79,39 +74,34 @@ el_img ui_make_text(zfont_t *fnt, cstr_t txt, const int len)
 void ui_init_font(zfont_t *fnt, el_img bitmap, measure_t g)
 {
 	Uint32 *pixels = bitmap->pixels,
-	         Amask = bitmap->format->Amask,
-	         pitch = bitmap->pitch;
+	         Amask = bitmap->format->Amask;
 	   fnt->bitmap = bitmap;
 	   fnt->dims   = g;
 
-# define has_pixel_alpha(_x,_y) pixels[(_y) * pitch / 4 + (_x)] & Amask
+	int i,j,n,k, y,x, o,w, ax;
+	measure_t m;
 
-	int i, j, n, y, l, r;
-
-	for (n = j = 0; j < FONT_LETTER_R; j++) {
-		for (i = 0; i < FONT_LETTER_N; i++, n++) {
-
-			unsigned int o = -1, ax = i * FONT_G_WIDTH,
-			             w =  0, ay = j * FONT_G_HEIGHT;
-
-			for (y = 0; y < FONT_G_HEIGHT; y++) {
-				for (l = 0; l < FONT_G_WIDTH; l++) {
-					if (has_pixel_alpha(ax + l, ay + y))
-						break;
-				}
-				for (r = FONT_G_WIDTH - 1; r >= 0; r--) {
-					if (has_pixel_alpha(ax + r, ay + y))
-						break;
-				}
-				if (l < o)
-					o = l;
-				if (r >= l && (r - l + 1) > w)
-					w = r - l + 1;
+	for (n = 0; n < FONT_LETTER_L; n++)
+		ui_font_set_letter(fnt, n, -1, 0);
+	for (k = j = 0; j < FONT_LETTER_R; j++) {
+# pragma loop count(28)
+		for (y = 0; y < FONT_G_HEIGHT; y++, ax = 0)
+		for (i = 0; i < FONT_LETTER_N; i++, ax += FONT_G_WIDTH) {
+			 o = w = 0, m = fnt->lmap[(n = j * FONT_LETTER_N + i)];
+# pragma loop count(24)
+			for (x = 0; x < FONT_G_WIDTH ; x++, k++) {
+				if (pixels[k] & Amask)
+					w = x;
+				else if (w == 0)
+					o = x;
 			}
-			ui_font_set_letter(fnt, n, o, w);
+			if (m.offset > (o + ax))
+				m.offset = (o + ax);
+			if (m.width  < (w - o + 1) && w > o)
+				m.width  = (w - o + 1);
+			fnt->lmap[n] = m;
 		}
 	}
-# undef has_pixel_alpha
 }
 
 /* fills horisontal/vertical bar with fill attribute */

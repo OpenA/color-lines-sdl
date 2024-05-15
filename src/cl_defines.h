@@ -13,6 +13,7 @@
 // Fonts Defines
 # define FONT_LETTER_R 3
 # define FONT_LETTER_N 32
+# define FONT_LETTER_L (FONT_LETTER_N * FONT_LETTER_R)
 
 # define FONT_FANCY_PADDING 0
 # define FONT_FANCY_WIDTH  24

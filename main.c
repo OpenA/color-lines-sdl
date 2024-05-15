@@ -24,7 +24,7 @@ static move_t Move;
 static path_t GameDir;
 static el_img SVGs[UI_BITMAPS_L];
 
-struct __STAT__ {
+struct _STAT_ {
 	bool quit:1, locked:1, paused:1, game_over:1;
 	char brd_state;
 };
@@ -668,7 +668,7 @@ static void draw_board(void)
 
 Uint32 frame_handler(Uint32 ival, void *frame)
 {
-	struct __STAT__ *st = frame, ld = *st;
+	struct _STAT_ *st = frame, ld = *st;
 	int code = 0;
 
 	if (ld.quit)
@@ -783,7 +783,7 @@ static void handle_main_prefs(hook_e ht, int x, int y)
 
 static void loop_main_start()
 {
-	struct __STAT__ frame = {
+	struct _STAT_ frame = {
 		.quit      = false,
 		.game_over = false,
 		.brd_state = 0,
@@ -824,7 +824,7 @@ static void loop_main_start()
 			switch (t) {
 			case SDL_USEREVENT:
 				if (c == hT_Timer_Stop)
-					stop_Game_Timer();
+					stop_Game_Timer(), frame.paused = false;
 				break;
 			case SDL_QUIT: // Quit the game
 				frame.quit = true;
@@ -909,11 +909,14 @@ static void loop_main_start()
 					refresh = false;
 				break;
 			case SDL_MOUSEWHEEL:
-				if (ui_is_on_el_rect(&BgmVol, mx,my)) {
-					//set_volume(BgmVol.fill.width + (x ?: y));
+				if (options && ui_is_on_el_rect(&SfxVol, mx,my)) {
+					handle_main_prefs(hT_Sfx_Volume, SfxVol.pos.offsetX+SfxVol.fill.width + (-2*x), 0);
 				} else
-				if (IS_OVER_GAME_BOARD(mx,my) && paused && x) {
-					scroll_info(&HelpGuide, -FONT_LIMON_HEIGHT * x, true);
+				if (options && ui_is_on_el_rect(&BgmVol, mx,my)) {
+					handle_main_prefs(hT_Bgm_Volume, BgmVol.pos.offsetX+BgmVol.fill.width + (-2*x), 0);
+				} else
+				if (paused && IS_OVER_GAME_BOARD(mx,my)) {
+					scroll_info(&HelpGuide, (-FONT_LIMON_HEIGHT*x), true);
 				} else
 					refresh = false;
 				break;
@@ -979,7 +982,7 @@ static bool upd_main_score(bool reset)
 	if (do_sound)
 		sound_sfx_play(&Sound, SND_Bonus, 1);
 	if (do_fills) {
-		l = snprintf(txt, sizeof(txt), (ni_bonus ? "Bonus x%d" : "PLAYER: %d"), (ni_bonus ? new_mul : cur_score));
+		l = snprintf(txt, sizeof(txt), (ni_bonus ? "Bonus x %d" : "PLAYER: %d"), (ni_bonus ? new_mul : cur_score));
 		ui_draw_text(tFANCY, txt, l, iSCREEN, p);
 		MyScore.fill.width = to_range(MyScore.rect.width, cur_score, Player.scmax);
 		ui_draw_el_bar(&MyScore, iBG, iSCREEN, HL_Inside);
