@@ -712,6 +712,7 @@ static void toggle_main_prefs(bool show, bool snap)
 		draw_play_mode(Prefs.mus_loop);
 	} else {
 		restore_game_screen(sr);
+		draw_Track_title(!Prefs.bgm_mute);
 	}
 }
 
@@ -767,10 +768,10 @@ static void handle_main_prefs(hook_e ht, int x, int y)
 		if (Prefs.bgm_mute ^= 1) {
 			if (sound_has_mix_ready(&Sound))
 				sound_bgm_stop(&Sound);
-			BgmMute.fill.width = 0;
+			BgmMute.fill.width = PlayList.value.h1 = 0;
 		} else {
 			play_bgm_track(Prefs.mus_num, GameDir);
-			BgmMute.fill.width = -1;
+			BgmMute.fill.width = PlayList.value.h1 = -1;
 		}
 		ui_draw_el_bar(&BgmMute, iBOX, iSCREEN, HL_Outside);
 		break;
@@ -901,7 +902,7 @@ static void loop_main_start()
 						ulock_Main_Frame();
 					} else
 						refresh = false;
-				} else if (ui_is_on_el_rect(&PlayList, x, y)) {
+				} else if (ui_is_on_el_rect(&PlayList, x, y) && PlayList.value.h1) {
 					Player.change_track = true;
 					track_switch();
 					Player.change_track = false;
@@ -1053,7 +1054,7 @@ void prep_main_balls()
 {
 	int j,x,y,a,b = 0,n = BALL_COLOR_N;
 
-	float xs,ys;
+	float s;
 	GFX_Radi angle = { 0.0f, 1.0f }; // GFX_toRadians(0);
 
 	el_rect dbr = ui_new_el_rect(
@@ -1075,13 +1076,11 @@ void prep_main_balls()
 		for (j = 1, a = BALL_ALPHA_S; j < BALL_ALPHA_N; j++, a += BALL_ALPHA_S) {
 			Balls[b].alpha[j-1] = GFX_CpyWithAlpha(ball, a);
 		}
-		for (j = 0, xs = BALL_SIZES_S; j < BALL_SIZES_N; j++, xs += BALL_SIZES_S) {
-			Balls[b].sizes[j] = GFX_CpyWithTransform(ball, angle, xs, xs);
+		for (j = 0, s = BALL_SIZES_S; j < BALL_SIZES_N; j++, s += BALL_SIZES_S) {
+			Balls[b].sizes[j] = GFX_CpyWithTransform(ball, angle, s, s);
 		}
-		for (j = 1; j <= BALL_JUMPS_N; j++) {
-			ys = 1.0 - (((float)(1.0 - JUMP_MAX) / (float)JUMP_STEPS) * j),
-			xs = 1.0 + (1.0 - ys);
-			Balls[b].jumps[j-1] = GFX_CpyWithTransform(ball, angle, xs, ys);
+		for (j = 1, s = 0.f; j <= BALL_JUMPS_N; j++, s += BALL_JUMPS_S) {
+			Balls[b].jumps[j-1] = GFX_CpyWithTransform(ball, angle, (2.f - (1.f - s)), (1.f - s));
 		}
 	}
 }
@@ -1174,6 +1173,7 @@ static void prep_main_ui(void)
 	ui_draw_el_ico(&OptsBtn, NULL, iBOX);
 	ui_draw_el_ico(&HelpBtn ,NULL, iSCREEN);
 
+	PlayList.value.h1 = bX;
 	if (PlayList.img)
 		draw_Track_title(true);
 # undef SOUND_TXT
@@ -1220,7 +1220,7 @@ static SUCESS parse_main_args(const int alen, cstr_t args[])
 		printf("\n- found arg:  %c%c%s\n", s,c,p);
 #endif
 	}
-	return p ? SysExtractArgPath(&GameDir, p, 1) : SysGetExecPath(&GameDir);
+	return p ? SysExtractArgPath(&GameDir, p, true) : SysGetExecPath(&GameDir);
 }
 
 int main(int argc, cstr_t argv[]) {

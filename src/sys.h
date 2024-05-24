@@ -34,10 +34,10 @@ typedef struct {
 	char path[SYS_PATH_L];
 } path_t;
 
-# define sys_make_dir_path(p, _T)  sys_extend_path(p, _T SYS_PATH_S, 1)
-# define sys_make_file_path(p, _T) sys_extend_path(p, _T, 0)
+# define sys_make_dir_path(p, _T)  sys_extend_path(p, _T SYS_PATH_S, true)
+# define sys_make_file_path(p, _T) sys_extend_path(p, _T, false)
 
-static inline cstr_t sys_extend_path(path_t *dir, cstr_t ext, const char move_carret)
+static inline cstr_t sys_extend_path(path_t *dir, cstr_t ext, bool move_carret)
 {
 	int i = 0, k = dir->carret;
 	while (k < SYS_PATH_L && (dir->path[k] = ext[i]) != '\0')
@@ -47,7 +47,7 @@ static inline cstr_t sys_extend_path(path_t *dir, cstr_t ext, const char move_ca
 	return dir->path;
 }
 
-static inline cstr_t sys_cuts_path(path_t *dir, int ridx, const char move_carret)
+static inline cstr_t sys_cuts_path(path_t *dir, int ridx, bool move_carret)
 {
 	int k = ridx - 1;
 	while (k >= 0 && dir->path[k] != SYS_PATH_C)
@@ -62,7 +62,7 @@ typedef enum {
 	SUCESS_ok   = 1
 } SUCESS;
 
-static inline SUCESS SysExtractArgPath(path_t *exe, const char* restrict argv0, const char autoslash)
+static inline SUCESS SysExtractArgPath(path_t *exe, cstr_t restrict argv0, bool autoslash)
 {
 	char c;
 	int msz, i = 0,
@@ -95,10 +95,10 @@ static inline SUCESS SysAcessConfigPath(path_t *cfg)
 # else
 	struct passwd *pw = getpwuid(getuid());
 
-	if (pw && SysExtractArgPath(cfg, pw->pw_dir, 1))
+	if (pw && SysExtractArgPath(cfg, pw->pw_dir, true))
 #endif
 	{
-		(void)sys_extend_path(cfg, SYS_CONF_DIR, 1);
+		(void)sys_extend_path(cfg, SYS_CONF_DIR, true);
 # ifdef _WIN32
 		if (SHCreateDirectory(NULL, (LPTSTR)cfg->path) == ERROR_SUCCESS)
 # else
@@ -136,7 +136,7 @@ static inline SUCESS SysGetExecPath(path_t *exe) {
 #  undef PROC_LNK
 
 # endif
-	if (sys_cuts_path(exe, sz, 1)[0] == SYS_PATH_C)
+	if (sys_cuts_path(exe, sz, true)[0] == SYS_PATH_C)
 		return SUCESS_ok;
 	return SUCESS_fail;
 }

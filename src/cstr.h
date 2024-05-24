@@ -1,4 +1,5 @@
 #ifndef _CSTR_H_
+# include <stdbool.h>
 # include <string.h>
 # define _CSTR_H_
 

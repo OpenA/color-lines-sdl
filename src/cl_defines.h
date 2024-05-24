@@ -3,7 +3,6 @@
 # define to_min(a,b) (a)<(b)?(a):(b) // 'min' was a global define
 # define _CL_DEFINES_H_
 
-# include <stdbool.h>
 # define to_range(w,i,imx) (w * (i * 100 / imx) / 100)
 
 # define conf_param_add(cfg, FL) ((cfg)->flags |=  FL)
@@ -52,11 +51,11 @@
 # define BALLS_COUNT_L (BALL_COLOR_N+BALL_BONUS_N)
 
 # define BALL_ALPHA_N 16
-# define BALL_ALPHA_S (0xFF / (BALL_ALPHA_N / 1))
+# define BALL_ALPHA_S (0xFF / BALL_ALPHA_N)
 # define BALL_SIZES_N 16
-# define BALL_SIZES_S (1.0 / ((float)BALL_SIZES_N / 1.0))
+# define BALL_SIZES_S (1.0f / BALL_SIZES_N)
 # define BALL_JUMPS_N 8
-# define BALL_JUMPS_S (1.0 / ((float)BALL_JUMPS_N / 1.0))
+# define BALL_JUMPS_S (1.0f - BALL_JUMPS_N * 0.1f) / BALL_JUMPS_N
 
 // Game Defines
 # define GAME_SCREEN_W 800
