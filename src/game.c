@@ -24,22 +24,42 @@ void game_save_session(desk_t *brd, path_t *cfg_dir)
 
 bool game_load_settings(prefs_t *pref, path_t *cfg_dir)
 {
-	bool  l_ok = false;
-	FILE *file = fopen(sys_make_file_path(cfg_dir, CL_PREFS_NAME), "rb");
+	FILE *cfg_fs = fopen(sys_make_file_path(cfg_dir, CL_PREFS_NAME), "r");
+	if ( !cfg_fs )
+		return false;
 
-	if ( file != NULL ) {
-		l_ok = 0 < fread(pref, sizeof(prefs_t), 1, file);
-		fclose(file);
+	char buf[32];
+	int  idx,val;
+	while (fgets(buf, sizeof(buf), cfg_fs)) {
+		if((idx = cstr_cmp_lit(CFG_P_SFX, buf, 0)) > 0) {
+			val = atoi(&buf[idx]);
+			pref->sfx_mute = val < 0;
+			pref->sfx_vol  = val < 0 ? -val : val;
+		} else
+		if((idx = cstr_cmp_lit(CFG_P_BGM, buf, 0)) > 0) {
+			val = atoi(&buf[idx]);
+			pref->bgm_mute = val < 0;
+			pref->bgm_vol  = val < 0 ? -val : val;
+		} else
+		if((idx = cstr_cmp_lit(CFG_P_MUS, buf, 0)) > 0) {
+			val = atoi(&buf[idx]);
+			pref->mus_loop = val < 0;
+			pref->mus_num  = val < 0 ? -val : val;
+		}
 	}
-	return l_ok;
+	fclose(cfg_fs);
+	return true;
 }
 
 void game_save_settings(prefs_t *pref, path_t *cfg_dir)
 {
-	FILE *file = fopen(sys_make_file_path(cfg_dir, CL_PREFS_NAME), "wb");
-	if ( file != NULL ) {
-		fwrite(pref, sizeof(prefs_t), 1, file);
-		fclose(file);
+	FILE *cfg_fs = fopen(sys_make_file_path(cfg_dir, CL_PREFS_NAME), "w");
+	if ( cfg_fs != NULL ) {
+		fprintf(cfg_fs, CFG_GET_STR("Global"),
+			(pref->sfx_mute ? -pref->sfx_vol : pref->sfx_vol),
+			(pref->bgm_mute ? -pref->bgm_vol : pref->bgm_vol),
+			(pref->mus_loop ? -pref->mus_num : pref->mus_num));
+		fclose(cfg_fs);
 	}
 }
 

@@ -6,7 +6,12 @@
 
 # define CL_RECORDS_NAME "records"
 # define CL_SESSION_NAME "session"
-# define CL_PREFS_NAME   "prefs"
+# define CL_PREFS_NAME   "settings.cfg"
+
+# define CFG_P_SFX "SFXVolume="
+# define CFG_P_BGM "BGMVolume="
+# define CFG_P_MUS "PlayTrack="
+# define CFG_GET_STR(_N) "["_N"]\n"CFG_P_SFX"%i\n"CFG_P_BGM"%i\n"CFG_P_MUS"%i\n"
 
 # define SOUND_DIR "sounds"
 # define SOUND_EFFECTS_N 7
